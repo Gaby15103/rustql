@@ -1,16 +1,17 @@
 use std::process;
 
+pub enum MetaAction{
+    Continue,
+    Exit,
+}
+
 pub enum MetaError {
     UnrecognizedCommand,
 }
 
-pub fn do_meta_command(input: &str) -> Result<(), MetaError> {
+pub fn do_meta_command(input: &str) -> Result<MetaAction, MetaError> {
     match input {
-        ".exit" => {
-            // Note: Rust automatically drops/frees variables before exiting here
-            // if we return a signal, or we can exit directly for now.
-            process::exit(0);
-        }
+        ".exit" => Ok(MetaAction::Exit),
         _ => Err(MetaError::UnrecognizedCommand),
     }
 }

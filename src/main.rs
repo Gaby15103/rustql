@@ -1,14 +1,17 @@
 mod compiler;
 mod meta;
 mod repl;
+mod storage;
 mod vm;
 
-use compiler::{prepare_statement, PrepareError};
-use meta::{do_meta_command, MetaError};
+use compiler::{PrepareError, prepare_statement};
+use meta::{MetaAction, MetaError, do_meta_command};
 use repl::{print_prompt, read_input};
-use vm::execute_statement;
+use storage::Table;
+use vm::{ExecuteError, execute_statement};
 
 fn main() {
+    let mut table = Table::new();
     let mut input_buffer = String::new();
 
     loop {
@@ -19,10 +22,10 @@ fn main() {
             continue;
         }
 
-        // Handle meta-commands starting with '.'
         if input_buffer.starts_with('.') {
             match do_meta_command(&input_buffer) {
-                Ok(()) => continue,
+                Ok(MetaAction::Continue) => continue,
+                Ok(MetaAction::Exit) => break,
                 Err(MetaError::UnrecognizedCommand) => {
                     println!("Unrecognized command '{}'", input_buffer);
                     continue;
@@ -30,17 +33,21 @@ fn main() {
             }
         }
 
-        // Compile SQL string into a Statement
         let statement = match prepare_statement(&input_buffer) {
             Ok(stmt) => stmt,
+            Err(PrepareError::SyntaxError) => {
+                println!("Syntzx error. Could not parse statement");
+                continue;
+            }
             Err(PrepareError::UnrecognizedStatement) => {
                 println!("Unrecognized keyword at start of '{}'.", input_buffer);
                 continue;
             }
         };
 
-        // Execute the compiled statement
-        execute_statement(&statement);
-        println!("Executed.");
+        match execute_statement(&statement, &mut table) {
+            Ok(()) => println!("Executed."),
+            Err(ExecuteError::TableFull) => println!("Error: Table full"),
+        }
     }
 }
