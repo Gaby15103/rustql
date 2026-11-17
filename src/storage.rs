@@ -1,9 +1,10 @@
 use std::fmt::{self, write};
+use std::fs::File;
 
 pub const COLUMN_USERNAME_SIZE: usize = 32;
 pub const COLUMN_EMAIL_SIZE: usize = 255;
 
-pub const ID_SIZE: usize = std::mem::size_of::<u32>();
+pub const ID_SIZE: usize = size_of::<u32>();
 pub const USERNAME_SIZE: usize = COLUMN_USERNAME_SIZE;
 pub const EMAIL_SIZE: usize = COLUMN_EMAIL_SIZE;
 
@@ -88,24 +89,30 @@ impl fmt::Display for Row {
     }
 }
 
-pub struct Table {
-    pub num_rows: usize,
-    // `Option<Page>` replaces `void* pages[100]` initialized to NULL.
-    // Rust automatically frees all allocated pages when `Table` is dropped!
+pub struct Pager {
+    file: File,
+    file_length: usize,
     pages: Vec<Option<Page>>,
 }
 
+pub struct Table {
+    pub num_rows: usize,
+    pager: Pager,
+}
+
 impl Table {
-    pub fn new() -> Self {
+    pub fn db_open(file_path: &str)->Self{
         Self {
             num_rows: 0,
-            pages: vec![None; TABLE_MAX_PAGES],
+            pager: Pager::open(file_path),
         }
     }
+
+
     pub fn row_slot_mut(&mut self, row_num: usize) -> &mut [u8] {
         let page_num = row_num / ROWS_PER_PAGE;
         // allocate the 4KB pages on the heap only iif it is currently 'None'
-        let page = self.pages[page_num].get_or_insert_with(|| Box::new([0u8; PAGE_SIZE]));
+        let page = self.pager.pages[page_num].get_or_insert_with(|| Box::new([0u8; PAGE_SIZE]));
         let row_offset = row_num % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
 
@@ -114,13 +121,30 @@ impl Table {
 
     pub fn row_slot(&self, row_num: usize) -> &[u8] {
         let page_num = row_num / ROWS_PER_PAGE;
-        let page = self.pages[page_num]
+        let page = self.pager.pages[page_num]
             .as_ref()
             .expect("Attempted to read from unallocated page");
+        let page = self.pager::get_page(page_num);
 
         let row_offset = row_num % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
 
         &page[byte_offset..byte_offset + ROW_SIZE]
+    }
+}
+
+impl Pager {
+    pub fn open(file_path: &str)->Self{
+        let mut file = File::open(file_path).unwrap();
+        let file_length = file.metadata().unwrap().len();
+
+        return Self{
+            file,
+            file_length: file_length as usize,
+            pages: vec![],
+        }
+    }
+    pub fn get_page(&self, page_num: u32){
+
     }
 }

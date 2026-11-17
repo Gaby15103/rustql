@@ -1,4 +1,4 @@
-use crate::storage::Row;
+use crate::storage::{Row, COLUMN_USERNAME_SIZE, COLUMN_EMAIL_SIZE};
 
 #[derive(Debug)]
 pub enum Statement {
@@ -9,6 +9,7 @@ pub enum Statement {
 pub enum PrepareError {
     SyntaxError,
     UnrecognizedStatement,
+    StringMaxLengthLimitExceeded(String),
 }
 
 pub fn prepare_statement(input: &str) -> Result<Statement, PrepareError> {
@@ -21,6 +22,15 @@ pub fn prepare_statement(input: &str) -> Result<Statement, PrepareError> {
         let email = parts.next().ok_or(PrepareError::SyntaxError)?;
 
         let id: u32 = id_str.parse().map_err(|_| PrepareError::SyntaxError)?;
+
+        if(username.len() > COLUMN_USERNAME_SIZE) {
+            let username_len = username.len().to_string();
+            return Err(PrepareError::StringMaxLengthLimitExceeded(format!("username: {username_len} > max: {COLUMN_USERNAME_SIZE}").to_owned()));
+        }
+        if(email.len() > COLUMN_EMAIL_SIZE) {
+            let email_len = email.len().to_string();
+            return Err(PrepareError::StringMaxLengthLimitExceeded(format!("email: {email_len} > max: {COLUMN_EMAIL_SIZE}").to_owned()));
+        }
 
         let row = Row::new(id, username, email);
         return Ok(Statement::Insert(row))

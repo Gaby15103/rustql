@@ -11,7 +11,7 @@ use storage::Table;
 use vm::{ExecuteError, execute_statement};
 
 fn main() {
-    let mut table = Table::new();
+    let mut table = Table::db_open(&"db.db");
     let mut input_buffer = String::new();
 
     loop {
@@ -41,6 +41,10 @@ fn main() {
             }
             Err(PrepareError::UnrecognizedStatement) => {
                 println!("Unrecognized keyword at start of '{}'.", input_buffer);
+                continue;
+            }
+            Err(PrepareError::StringMaxLengthLimitExceeded(message)) => {
+                println!("Error max length exceed : {}",message);
                 continue;
             }
         };
