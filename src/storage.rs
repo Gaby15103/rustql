@@ -1,5 +1,7 @@
+use crate::btree::LeafNode;
 use std::fmt::{self, write};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 pub const COLUMN_USERNAME_SIZE: usize = 32;
 pub const COLUMN_EMAIL_SIZE: usize = 255;
@@ -48,12 +50,10 @@ impl Row {
     }
 
     pub fn serialize(&self, destination: &mut [u8]) {
-        destination[ID_OFFSET..ID_OFFSET + ID_SIZE]
-            .copy_from_slice(&self.id.to_ne_bytes());
+        destination[ID_OFFSET..ID_OFFSET + ID_SIZE].copy_from_slice(&self.id.to_ne_bytes());
         destination[USERNAME_OFFSET..USERNAME_OFFSET + USERNAME_SIZE]
             .copy_from_slice(&self.username);
-        destination[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE]
-            .copy_from_slice(&self.email);
+        destination[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE].copy_from_slice(&self.email);
     }
 
     pub fn deserialize(source: &[u8]) -> Self {
@@ -89,29 +89,28 @@ impl fmt::Display for Row {
     }
 }
 
-pub struct Pager {
-    file: File,
-    file_length: usize,
-    pages: Vec<Option<Page>>,
-}
-
 pub struct Table {
-    pub num_rows: usize,
-    pager: Pager,
+    pub root_page_num: usize,
+    pub pager: Pager,
 }
 
 impl Table {
-    pub fn db_open(file_path: &str)->Self{
+    pub fn db_open(file_path: &str) -> Self {
+        let mut pager = Pager::open(file_path);
+        let root_page_num = 0;
+
+        if pager.num_pages == 0 {
+            let root_page = pager.get_page(0);
+            LeafNode::new(root_page.as_mut()).initialize();
+        }
+
         Self {
-            num_rows: 0,
-            pager: Pager::open(file_path),
+            root_page_num,
+            pager,
         }
     }
-
-
     pub fn row_slot_mut(&mut self, row_num: usize) -> &mut [u8] {
         let page_num = row_num / ROWS_PER_PAGE;
-        // allocate the 4KB pages on the heap only iif it is currently 'None'
         let page = self.pager.pages[page_num].get_or_insert_with(|| Box::new([0u8; PAGE_SIZE]));
         let row_offset = row_num % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
@@ -119,32 +118,163 @@ impl Table {
         &mut page[byte_offset..byte_offset + ROW_SIZE]
     }
 
-    pub fn row_slot(&self, row_num: usize) -> &[u8] {
+    pub fn row_slot(&mut self, row_num: usize) -> &mut [u8] {
         let page_num = row_num / ROWS_PER_PAGE;
-        let page = self.pager.pages[page_num]
-            .as_ref()
-            .expect("Attempted to read from unallocated page");
-        let page = self.pager::get_page(page_num);
+        let page = self.pager.get_page(page_num);
 
         let row_offset = row_num % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
 
-        &page[byte_offset..byte_offset + ROW_SIZE]
+        &mut page[byte_offset..byte_offset + ROW_SIZE]
+    }
+
+    pub fn db_close(&mut self) {
+        for i in 0..self.pager.num_pages {
+            if self.pager.pages[i].is_some() {
+                self.pager.flush(i, PAGE_SIZE);
+                self.pager.pages[i] = None;
+            }
+        }
     }
 }
 
-impl Pager {
-    pub fn open(file_path: &str)->Self{
-        let mut file = File::open(file_path).unwrap();
-        let file_length = file.metadata().unwrap().len();
+pub struct Cursor<'a> {
+    pub table: &'a mut Table,
+    pub page_num: usize,
+    pub cell_num: usize,
+    pub end_of_table: bool,
+}
 
-        return Self{
-            file,
-            file_length: file_length as usize,
-            pages: vec![],
+impl<'a> Cursor<'a> {
+    pub fn table_start(table: &'a mut Table) -> Self {
+        let root_page_num = table.root_page_num;
+        let root_page = table.pager.get_page(root_page_num);
+        let num_cells = LeafNode::new(root_page.as_mut()).num_cells() as usize;
+
+        Self {
+            table,
+            page_num: root_page_num,
+            cell_num: 0,
+            end_of_table: num_cells == 0,
         }
     }
-    pub fn get_page(&self, page_num: u32){
 
+    pub fn table_end(table: &'a mut Table) -> Self {
+        let root_page_num = table.root_page_num;
+        let root_page = table.pager.get_page(root_page_num);
+        let num_cells = LeafNode::new(root_page.as_mut()).num_cells() as usize;
+
+        Self {
+            table,
+            page_num: root_page_num,
+            cell_num: num_cells,
+            end_of_table: true,
+        }
+    }
+
+    pub fn value(&mut self) -> &mut [u8] {
+        let page = self.table.pager.get_page(self.page_num);
+        let offset = crate::btree::LEAF_NODE_HEADER_SIZE
+            + self.cell_num * crate::btree::LEAF_NODE_CELL_SIZE
+            + crate::btree::LEAF_NODE_VALUE_OFFSET;
+        &mut page[offset..offset + crate::btree::LEAF_NODE_VALUE_SIZE]
+    }
+
+    pub fn advance(&mut self) {
+        let page = self.table.pager.get_page(self.page_num);
+        let num_cells = LeafNode::new(page.as_mut()).num_cells() as usize;
+
+        self.cell_num += 1;
+        if self.cell_num >= num_cells {
+            self.end_of_table = true;
+        }
+    }
+}
+
+pub struct Pager {
+    pub file: File,
+    pub file_length: usize,
+    pub num_pages: usize,
+    pub pages: Vec<Option<Page>>,
+}
+
+impl Pager {
+    pub fn open(file_path: &str) -> Self {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(file_path)
+            .expect("Unable to open database file");
+
+        let file_length = file.metadata().expect("Unable to read file metadata").len() as usize;
+        let num_pages = file_length / PAGE_SIZE;
+
+        if file_length % PAGE_SIZE != 0 {
+            panic!("Db file is not a whole number of pages. Corrupt file.");
+        }
+
+        Self {
+            file,
+            file_length,
+            num_pages,
+            pages: vec![None; TABLE_MAX_PAGES],
+        }
+    }
+    pub fn get_page(&mut self, page_num: usize) -> &mut Page {
+        if page_num >= TABLE_MAX_PAGES {
+            panic!("Tried to fetch page number out of bounds: {}", page_num);
+        }
+
+        if self.pages[page_num].is_none() {
+            let mut page = Box::new([0u8; PAGE_SIZE]);
+            let mut num_pages = self.file_length / PAGE_SIZE;
+
+            if self.file_length % PAGE_SIZE != 0 {
+                num_pages += 1;
+            }
+
+            if page_num < num_pages {
+                let offset = (page_num * PAGE_SIZE) as u64;
+                self.file
+                    .seek(SeekFrom::Start(offset))
+                    .expect("Error seeking file");
+
+                let mut bytes_read = 0;
+                while bytes_read < PAGE_SIZE {
+                    let n = self
+                        .file
+                        .read(&mut page[bytes_read..])
+                        .expect("Error reading file");
+                    if n == 0 {
+                        break;
+                    }
+                    bytes_read += n;
+                }
+            }
+
+            self.pages[page_num] = Some(page);
+            
+            if page_num >= self.num_pages {
+                self.num_pages = page_num + 1;
+            }
+        }
+
+        self.pages[page_num].as_mut().unwrap()
+    }
+
+    pub fn flush(&mut self, page_num: usize, size: usize) {
+        let page = self.pages[page_num]
+            .as_ref()
+            .expect("Tried to flush null page");
+
+        let offset = (page_num * PAGE_SIZE) as u64;
+        self.file
+            .seek(SeekFrom::Start(offset))
+            .expect("Error seeking file before flush");
+
+        self.file
+            .write_all(&page[..size])
+            .expect("Error writing page to file");
     }
 }

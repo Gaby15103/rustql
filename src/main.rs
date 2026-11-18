@@ -3,7 +3,9 @@ mod meta;
 mod repl;
 mod storage;
 mod vm;
+mod btree;
 
+use std::{env, process};
 use compiler::{PrepareError, prepare_statement};
 use meta::{MetaAction, MetaError, do_meta_command};
 use repl::{print_prompt, read_input};
@@ -11,7 +13,12 @@ use storage::Table;
 use vm::{ExecuteError, execute_statement};
 
 fn main() {
-    let mut table = Table::db_open(&"db.db");
+    let filename = env::args().nth(1).unwrap_or_else(|| {
+        println!("Must supply a database filename.");
+        process::exit(1);
+    });
+    let mut table = Table::db_open(&filename);
+
     let mut input_buffer = String::new();
 
     loop {
@@ -23,7 +30,7 @@ fn main() {
         }
 
         if input_buffer.starts_with('.') {
-            match do_meta_command(&input_buffer) {
+            match do_meta_command(&input_buffer, &mut table) {
                 Ok(MetaAction::Continue) => continue,
                 Ok(MetaAction::Exit) => break,
                 Err(MetaError::UnrecognizedCommand) => {
