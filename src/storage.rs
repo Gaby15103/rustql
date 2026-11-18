@@ -102,6 +102,7 @@ impl Table {
         if pager.num_pages == 0 {
             let root_page = pager.get_page(0);
             LeafNode::new(root_page.as_mut()).initialize();
+            crate::btree::set_node_root(root_page.as_mut(), true);
         }
 
         Self {
@@ -267,5 +268,22 @@ impl Pager {
         self.file
             .write_all(&page[..size])
             .expect("Error writing page to file");
+    }
+
+    pub fn get_unused_page_num(&mut self) -> usize {
+        let page_num = self.num_pages;
+        self.num_pages += 1;
+        page_num
+    }
+
+    pub fn get_two_pages_mut(&mut self, idx1: usize, idx2: usize) -> (&mut Page, &mut Page) {
+        assert_ne!(idx1, idx2, "Cannot borrow the same page mutably twice");
+        if idx1 < idx2 {
+            let (left, right) = self.pages.split_at_mut(idx2);
+            (left[idx1].as_mut().unwrap(), right[0].as_mut().unwrap())
+        } else {
+            let (left, right) = self.pages.split_at_mut(idx1);
+            (right[0].as_mut().unwrap(), left[idx2].as_mut().unwrap())
+        }
     }
 }

@@ -23,9 +23,8 @@ pub fn do_meta_command(input: &str, table: &mut Table) -> Result<MetaAction, Met
             Ok(MetaAction::Continue)
         }
         ".btree" => {
-            println!("Btree:");
-            let root_page = table.pager.get_page(0);
-            LeafNode::new(root_page.as_mut()).print_tree();
+            println!("Tree:");
+            crate::btree::print_tree(&mut table.pager, 0, 0);
             Ok(MetaAction::Continue)
         }
         _ => Err(MetaError::UnrecognizedCommand),
