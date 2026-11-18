@@ -35,6 +35,14 @@ pub struct LeafNode<'a> {
     page: &'a mut [u8],
 }
 
+pub fn get_node_type(page: &[u8]) -> NodeType {
+    match page[NODE_TYPE_OFFSET] {
+        0 => NodeType::Internal,
+        1 => NodeType::Leaf,
+        other => panic!("Unknown node type {}", other),
+    }
+}
+
 impl<'a> LeafNode<'a> {
     pub fn new(page: &'a mut [u8]) -> Self {
         Self { page }
@@ -103,6 +111,27 @@ impl<'a> LeafNode<'a> {
         value.serialize(self.value_mut(cell_num));
     }
 
+    pub fn find_cell(&self, key: u32) -> usize {
+        let num_cells = self.num_cells() as usize;
+        let mut min_index = 0;
+        let mut one_past_max_index = num_cells;
+
+        while one_past_max_index != min_index {
+            let index = (min_index + one_past_max_index) / 2;
+            let key_at_index = self.key(index);
+
+            if key == key_at_index {
+                return index;
+            }
+            if key < key_at_index {
+                one_past_max_index = index;
+            } else {
+                min_index = index + 1;
+            }
+        }
+        min_index
+    }
+
     pub fn print_tree(&self) {
         let num_cells = self.num_cells();
         println!("num_cells: {}", num_cells);
@@ -112,7 +141,7 @@ impl<'a> LeafNode<'a> {
     }
 }
 
-pub fn print_constants(){
+pub fn print_constants() {
     println!("ROW_SIZE: {}", ROW_SIZE);
     println!("COMMON_NODE_HEADER_SIZE: {}", COMMON_NODE_HEADER_SIZE);
     println!("LEAF_NODE_HEADER_SIZE: {}", LEAF_NODE_HEADER_SIZE);

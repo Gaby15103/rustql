@@ -1,14 +1,14 @@
+mod btree;
 mod compiler;
 mod meta;
 mod repl;
 mod storage;
 mod vm;
-mod btree;
 
-use std::{env, process};
 use compiler::{PrepareError, prepare_statement};
 use meta::{MetaAction, MetaError, do_meta_command};
 use repl::{print_prompt, read_input};
+use std::{env, process};
 use storage::Table;
 use vm::{ExecuteError, execute_statement};
 
@@ -51,14 +51,15 @@ fn main() {
                 continue;
             }
             Err(PrepareError::StringMaxLengthLimitExceeded(message)) => {
-                println!("Error max length exceed : {}",message);
+                println!("Error max length exceed : {}", message);
                 continue;
             }
         };
 
         match execute_statement(&statement, &mut table) {
             Ok(()) => println!("Executed."),
-            Err(ExecuteError::TableFull) => println!("Error: Table full"),
+            Err(ExecuteError::TableFull) => println!("Error: Table full."),
+            Err(ExecuteError::DuplicateKey) => println!("Error: Duplicate key."),
         }
     }
 }
