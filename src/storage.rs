@@ -1,4 +1,4 @@
-use crate::btree::{LeafNode, NodeType, get_node_type};
+use crate::btree::{get_node_type, InternalNode, LeafNode, NodeType};
 use std::fmt::{self, write};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -16,7 +16,7 @@ pub const EMAIL_OFFSET: usize = USERNAME_OFFSET + USERNAME_SIZE;
 pub const ROW_SIZE: usize = ID_SIZE + USERNAME_SIZE + EMAIL_SIZE;
 
 pub const PAGE_SIZE: usize = 4096;
-pub const TABLE_MAX_PAGES: usize = 100;
+pub const TABLE_MAX_PAGES: usize = 400;
 pub const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
 pub const TABLE_MAX_ROWS: usize = ROWS_PER_PAGE * TABLE_MAX_PAGES;
 
@@ -121,23 +121,28 @@ impl Table {
     }
 
     pub fn find(&mut self, key: u32) -> Cursor<'_> {
-        let root_page_num = self.root_page_num;
-        let root_page = self.pager.get_page(root_page_num);
+        let mut page_num = self.root_page_num;
 
-        match get_node_type(root_page.as_ref()) {
-            NodeType::Leaf => {
-                let cell_num = LeafNode::new(root_page.as_mut()).find_cell(key);
-                let num_cells = LeafNode::new(root_page.as_mut()).num_cells() as usize;
-
-                Cursor {
-                    table: self,
-                    page_num: root_page_num,
-                    cell_num,
-                    end_of_table: cell_num >= num_cells,
+        loop {
+            let page = self.pager.get_page(page_num);
+            match get_node_type(page.as_ref()){
+                NodeType::Internal => {
+                    let internal = InternalNode::new(page.as_mut());
+                    let child_index = internal.find_child(key);
+                    page_num = internal.child(child_index) as usize;
                 }
-            }
-            NodeType::Internal => {
-                panic!("Need to implement searching an internal node");
+                NodeType::Leaf => {
+                    let leaf = LeafNode::new(page.as_mut());
+                    let cell_num = leaf.find_cell(key);
+                    let num_cells = leaf.num_cells() as usize;
+
+                    return Cursor {
+                        table: self,
+                        page_num,
+                        cell_num,
+                        end_of_table: cell_num >= num_cells,
+                    };
+                }
             }
         }
     }
@@ -152,16 +157,13 @@ pub struct Cursor<'a> {
 
 impl<'a> Cursor<'a> {
     pub fn table_start(table: &'a mut Table) -> Self {
-        let root_page_num = table.root_page_num;
-        let root_page = table.pager.get_page(root_page_num);
-        let num_cells = LeafNode::new(root_page.as_mut()).num_cells() as usize;
+        let mut cursor = table.find(0);
 
-        Self {
-            table,
-            page_num: root_page_num,
-            cell_num: 0,
-            end_of_table: num_cells == 0,
-        }
+        let page = cursor.table.pager.get_page(cursor.page_num);
+        let num_cells = LeafNode::new(page.as_mut()).num_cells() as usize;
+        cursor.end_of_table = num_cells == 0;
+
+        cursor
     }
 
     pub fn value(&mut self) -> &mut [u8] {
@@ -174,11 +176,18 @@ impl<'a> Cursor<'a> {
 
     pub fn advance(&mut self) {
         let page = self.table.pager.get_page(self.page_num);
-        let num_cells = LeafNode::new(page.as_mut()).num_cells() as usize;
+        let leaf = LeafNode::new(page.as_mut());
+        let num_cells = leaf.num_cells() as usize;
+        let next_leaf = leaf.next_leaf() as usize;
 
         self.cell_num += 1;
         if self.cell_num >= num_cells {
-            self.end_of_table = true;
+            if next_leaf == 0 {
+                self.end_of_table = true;
+            } else {
+                self.page_num = next_leaf;
+                self.cell_num = 0;
+            }
         }
     }
 }

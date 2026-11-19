@@ -209,3 +209,76 @@ fn allows_printing_out_the_structure_of_a_3_leaf_node_btree() {
         ]
     );
 }
+#[test]
+fn prints_all_rows_in_a_multi_level_tree() {
+    let db = TestDb::new("multi_level_select");
+
+    let mut commands = Vec::new();
+    for i in 1..=15 {
+        commands.push(format!("insert {i} user{i} person{i}@example.com"));
+    }
+    commands.push("select".to_string());
+    commands.push(".exit".to_string());
+
+    let cmd_refs: Vec<&str> = commands.iter().map(String::as_str).collect();
+    let result = db.run(&cmd_refs);
+
+    // Grab the 15 rows printed after "select"
+    let select_start = result
+        .iter()
+        .position(|line| line.starts_with("db > 1,user1,"))
+        .expect("Did not find select output");
+
+    let mut expected = vec![format!("db > 1,user1,person1@example.com")];
+    for i in 2..=15 {
+        expected.push(format!("{i},user{i},person{i}@example.com"));
+    }
+    expected.push("Executed.".to_string());
+    expected.push("db > ".to_string());
+
+    assert_eq!(&result[select_start..], expected.as_slice());
+}
+
+#[test]
+fn stress_test_1400_rows_out_of_order_and_persisted() {
+    let db = TestDb::new("stress_1400");
+
+    let total_rows: u32 = 1400;
+    let mut ids: Vec<u32> = (1..=total_rows).collect();
+    for i in 0..ids.len() {
+        let swap_idx = (i * 7919 + 104729) % ids.len();
+        ids.swap(i, swap_idx);
+    }
+
+    let mut insert_commands: Vec<String> = ids
+        .iter()
+        .map(|id| format!("insert {id} user{id} person{id}@example.com"))
+        .collect();
+    insert_commands.push(".exit".to_string());
+
+    let insert_refs: Vec<&str> = insert_commands.iter().map(String::as_str).collect();
+    let insert_output = db.run(&insert_refs);
+
+    assert_eq!(insert_output.len(), (total_rows + 1) as usize);
+    for line in &insert_output[..total_rows as usize] {
+        assert_eq!(line, "db > Executed.");
+    }
+
+    let select_output = db.run(&["select", ".exit"]);
+
+    println!("Total lines returned by select: {}", select_output.len());
+    println!("Lines 170..177: {:?}", &select_output[170..177]);
+    println!("Last 5 lines: {:?}", &select_output[select_output.len() - 5..]);
+
+
+    assert_eq!(select_output.len(), (total_rows + 2) as usize);
+    assert_eq!(select_output[0], "db > 1,user1,person1@example.com");
+
+    for id in 2..=total_rows {
+        let expected_line = format!("{id},user{id},person{id}@example.com");
+        assert_eq!(select_output[(id - 1) as usize], expected_line);
+    }
+
+    assert_eq!(select_output[total_rows as usize], "Executed.");
+    assert_eq!(select_output[(total_rows + 1) as usize], "db > ");
+}
