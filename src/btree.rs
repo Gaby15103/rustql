@@ -53,7 +53,10 @@ pub const INTERNAL_NODE_KEY_SIZE: usize = std::mem::size_of::<u32>();
 pub const INTERNAL_NODE_CHILD_SIZE: usize = std::mem::size_of::<u32>();
 pub const INTERNAL_NODE_CELL_SIZE: usize = INTERNAL_NODE_CHILD_SIZE + INTERNAL_NODE_KEY_SIZE;
 
-pub const INTERNAL_NODE_MAX_CELLS: usize = 3;
+pub const INTERNAL_NODE_SPACE_FOR_CELLS: usize =
+    PAGE_SIZE - INTERNAL_NODE_HEADER_SIZE;
+pub const INTERNAL_NODE_MAX_CELLS: usize =
+    INTERNAL_NODE_SPACE_FOR_CELLS / INTERNAL_NODE_CELL_SIZE;
 pub const INVALID_PAGE_NUM: u32 = u32::MAX;
 
 

@@ -39,6 +39,12 @@ impl TestDb {
             .wait_with_output()
             .expect("Failed to read stdout from child process");
 
+        assert!(
+            output.status.success(),
+            "database process failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
         let raw_output = String::from_utf8(output.stdout).expect("Output was not valid UTF-8");
         raw_output.lines().map(String::from).collect()
     }
