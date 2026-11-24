@@ -32,7 +32,7 @@ pub fn prepare_statement(input: &str) -> Result<Statement, PrepareError> {
             return Err(PrepareError::StringMaxLengthLimitExceeded(format!("email: {email_len} > max: {COLUMN_EMAIL_SIZE}").to_owned()));
         }
 
-        let row = Row::new(id, username, email);
+        let row = Row::for_example_table(id, username, email);
         return Ok(Statement::Insert(row))
     }
     if input == "select" {

@@ -60,6 +60,7 @@ fn main() {
             Ok(()) => println!("Executed."),
             Err(ExecuteError::TableFull) => println!("Error: Table full."),
             Err(ExecuteError::DuplicateKey) => println!("Error: Duplicate key."),
+            Err(ExecuteError::InvalidRow) => println!("Error: Invalid row."),
         }
     }
 }

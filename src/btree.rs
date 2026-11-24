@@ -1,5 +1,4 @@
-﻿use crate::storage::{PAGE_SIZE, Pager, ROW_SIZE, Row};
-use std::mem;
+﻿use crate::storage::{PAGE_SIZE, Pager, ROW_SIZE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -241,7 +240,8 @@ impl<'a> LeafNode<'a> {
         min_index
     }
 
-    pub fn insert(&mut self, cell_num: usize, key: u32, value: &Row) {
+    pub fn insert(&mut self, cell_num: usize, key: u32, value: &[u8]) {
+        assert_eq!(value.len(), LEAF_NODE_VALUE_SIZE);
         let num_cells = self.num_cells() as usize;
         if num_cells >= LEAF_NODE_MAX_CELLS {
             panic!("Need to implement splitting a leaf node.");
@@ -256,7 +256,7 @@ impl<'a> LeafNode<'a> {
 
         self.set_num_cells((num_cells + 1) as u32);
         self.set_key(cell_num, key);
-        value.serialize(self.value_mut(cell_num));
+        self.value_mut(cell_num).copy_from_slice(value);
     }
 
     pub fn print_tree(&self) {
@@ -407,7 +407,7 @@ pub fn leaf_node_split_and_insert(
     old_page_num: usize,
     cell_num: usize,
     key: u32,
-    value: &Row,
+    value: &[u8],
 ) {
     let new_page_num = pager.get_unused_page_num();
     pager.get_page(old_page_num);
@@ -437,7 +437,9 @@ pub fn leaf_node_split_and_insert(
                 &mut old_node
             };
             destination_node.set_key(index_within_node, key);
-            value.serialize(destination_node.value_mut(index_within_node));
+            destination_node
+                .value_mut(index_within_node)
+                .copy_from_slice(value);
         } else {
             let src_idx = if i > cell_num { i - 1 } else { i };
             let mut cell_buf = [0u8; LEAF_NODE_CELL_SIZE];

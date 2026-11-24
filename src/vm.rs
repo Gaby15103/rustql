@@ -1,10 +1,11 @@
 use crate::btree::{leaf_node_split_and_insert, LeafNode, LEAF_NODE_MAX_CELLS};
 use crate::compiler::Statement;
-use crate::storage::{Cursor, Row, TABLE_MAX_ROWS, Table};
+use crate::storage::{Cursor, Row, TABLE_MAX_ROWS, Table, Value};
 
 pub enum ExecuteError {
     TableFull,
     DuplicateKey,
+    InvalidRow,
 }
 
 pub fn execute_statement(statement: &Statement, table: &mut Table) -> Result<(), ExecuteError> {
@@ -14,8 +15,21 @@ pub fn execute_statement(statement: &Statement, table: &mut Table) -> Result<(),
     }
 }
 
+fn primary_key(row: &Row) -> Option<u32> {
+    match row.values.first()? {
+        Value::Integer(id) => u32::try_from(*id).ok(),
+        _ => None,
+    }
+}
+
+
 fn execute_insert(row: &Row, table: &mut Table) -> Result<(), ExecuteError> {
-    let key_to_insert = row.id;
+    let key_to_insert = match primary_key(row) {
+        Some(key) => key,
+        None => return Err(ExecuteError::InvalidRow),
+    };
+
+    let row_bytes = row.to_bytes();
     let cursor = table.find(key_to_insert);
 
     let root_page_num = cursor.table.root_page_num;
@@ -38,12 +52,16 @@ fn execute_insert(row: &Row, table: &mut Table) -> Result<(), ExecuteError> {
             root_page_num,
             page_num,
             cell_num,
-            row.id,
-            row,
+            key_to_insert,
+            &row_bytes,
         );
     } else {
         let page = cursor.table.pager.get_page(page_num);
-        LeafNode::new(page.as_mut()).insert(cell_num, row.id, row);
+        LeafNode::new(page.as_mut()).insert(
+            cell_num,
+            key_to_insert,
+            &row_bytes,
+        );
     }
 
     Ok(())

@@ -22,70 +22,122 @@ pub const TABLE_MAX_ROWS: usize = ROWS_PER_PAGE * TABLE_MAX_PAGES;
 
 type Page = Box<[u8; PAGE_SIZE]>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Value {
+    Integer(i64),
+    Text(String),
+    Null,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
-    pub id: u32,
-    pub username: [u8; COLUMN_USERNAME_SIZE],
-    pub email: [u8; COLUMN_EMAIL_SIZE],
+    pub values: Vec<Value>,
 }
 
 impl Row {
-    pub fn new(id: u32, username_str: &str, email_str: &str) -> Self {
-        let mut username = [0u8; COLUMN_USERNAME_SIZE];
-        let mut email = [0u8; COLUMN_EMAIL_SIZE];
-
-        let u_bytes = username_str.as_bytes();
-        let u_len = u_bytes.len().min(COLUMN_USERNAME_SIZE);
-        username[..u_len].copy_from_slice(&u_bytes[..u_len]);
-
-        let e_bytes = email_str.as_bytes();
-        let e_len = e_bytes.len().min(COLUMN_EMAIL_SIZE);
-        email[..e_len].copy_from_slice(&e_bytes[..e_len]);
-
+    // pub fn new(id: u32, username_str: &str, email_str: &str) -> Self {
+    //     let mut username = [0u8; COLUMN_USERNAME_SIZE];
+    //     let mut email = [0u8; COLUMN_EMAIL_SIZE];
+    //
+    //     let u_bytes = username_str.as_bytes();
+    //     let u_len = u_bytes.len().min(COLUMN_USERNAME_SIZE);
+    //     username[..u_len].copy_from_slice(&u_bytes[..u_len]);
+    //
+    //     let e_bytes = email_str.as_bytes();
+    //     let e_len = e_bytes.len().min(COLUMN_EMAIL_SIZE);
+    //     email[..e_len].copy_from_slice(&e_bytes[..e_len]);
+    //
+    //     Self {
+    //         id,
+    //         username,
+    //         email,
+    //     }
+    // }
+    pub fn for_example_table(id: u32, username: &str, email: &str) -> Self {
         Self {
-            id,
-            username,
-            email,
+            values: vec![
+                Value::Integer(id as i64),
+                Value::Text(username.to_owned()),
+                Value::Text(email.to_owned()),
+            ],
         }
+    }
+
+    pub fn to_bytes(&self) -> [u8; ROW_SIZE] {
+        let mut bytes = [0u8; ROW_SIZE];
+        self.serialize(&mut bytes);
+        bytes
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert_eq!(bytes.len(), ROW_SIZE);
+        Self::deserialize(bytes)
     }
 
     pub fn serialize(&self, destination: &mut [u8]) {
-        destination[ID_OFFSET..ID_OFFSET + ID_SIZE].copy_from_slice(&self.id.to_ne_bytes());
+        let [Value::Integer(id), Value::Text(username), Value::Text(email)] =
+            self.values.as_slice()
+        else {
+            panic!("expected row values [Integer, Text, Text]");
+        };
+
+        let id: u32 = (*id).try_into().expect("id must fit in u32");
+        destination[ID_OFFSET..ID_OFFSET + ID_SIZE].copy_from_slice(&id.to_ne_bytes());
+
+        let mut username_bytes = [0; USERNAME_SIZE];
+        let username_len = username.len().min(USERNAME_SIZE);
+        username_bytes[..username_len].copy_from_slice(&username.as_bytes()[..username_len]);
         destination[USERNAME_OFFSET..USERNAME_OFFSET + USERNAME_SIZE]
-            .copy_from_slice(&self.username);
-        destination[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE].copy_from_slice(&self.email);
+            .copy_from_slice(&username_bytes);
+
+        let mut email_bytes = [0; EMAIL_SIZE];
+        let email_len = email.len().min(EMAIL_SIZE);
+        email_bytes[..email_len].copy_from_slice(&email.as_bytes()[..email_len]);
+        destination[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE]
+            .copy_from_slice(&email_bytes);
     }
 
     pub fn deserialize(source: &[u8]) -> Self {
-        let id_bytes: [u8; 4] = source[ID_OFFSET..ID_OFFSET + ID_SIZE]
+        let id_bytes: [u8; ID_SIZE] = source[ID_OFFSET..ID_OFFSET + ID_SIZE]
             .try_into()
-            .expect("Slice lenght mismatch for ID");
+            .expect("invalid ID bytes");
         let id = u32::from_ne_bytes(id_bytes);
 
-        let mut username = [0u8; COLUMN_USERNAME_SIZE];
-        username.copy_from_slice(&source[USERNAME_OFFSET..USERNAME_OFFSET + USERNAME_SIZE]);
-
-        let mut email = [0u8; COLUMN_EMAIL_SIZE];
-        email.copy_from_slice(&source[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE]);
+        let username = read_fixed_text(
+            &source[USERNAME_OFFSET..USERNAME_OFFSET + USERNAME_SIZE],
+        );
+        let email = read_fixed_text(
+            &source[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE],
+        );
 
         Self {
-            id,
-            username,
-            email,
+            values: vec![
+                Value::Integer(id as i64),
+                Value::Text(username),
+                Value::Text(email),
+            ],
         }
     }
 }
-
+fn read_fixed_text(bytes: &[u8]) -> String {
+    let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+    String::from_utf8_lossy(&bytes[..end]).into_owned()
+}
 impl fmt::Display for Row {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let username = std::str::from_utf8(&self.username)
-            .unwrap_or("")
-            .trim_end_matches('\0');
-        let email = std::str::from_utf8(&self.email)
-            .unwrap_or("")
-            .trim_end_matches('\0');
+        for (index, value) in self.values.iter().enumerate() {
+            if index > 0 {
+                f.write_str(",")?;
+            }
 
-        write!(f, "{},{},{}", self.id, username, email)
+            match value {
+                Value::Integer(value) => write!(f, "{value}")?,
+                Value::Text(value) => f.write_str(value)?,
+                Value::Null => f.write_str("NULL")?,
+            }
+        }
+
+        Ok(())
     }
 }
 
