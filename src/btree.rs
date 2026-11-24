@@ -1,4 +1,4 @@
-﻿use crate::storage::{PAGE_SIZE, Pager, ROW_SIZE};
+use crate::storage::{PAGE_SIZE, Pager, ROW_SIZE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -52,12 +52,9 @@ pub const INTERNAL_NODE_KEY_SIZE: usize = std::mem::size_of::<u32>();
 pub const INTERNAL_NODE_CHILD_SIZE: usize = std::mem::size_of::<u32>();
 pub const INTERNAL_NODE_CELL_SIZE: usize = INTERNAL_NODE_CHILD_SIZE + INTERNAL_NODE_KEY_SIZE;
 
-pub const INTERNAL_NODE_SPACE_FOR_CELLS: usize =
-    PAGE_SIZE - INTERNAL_NODE_HEADER_SIZE;
-pub const INTERNAL_NODE_MAX_CELLS: usize =
-    INTERNAL_NODE_SPACE_FOR_CELLS / INTERNAL_NODE_CELL_SIZE;
+pub const INTERNAL_NODE_SPACE_FOR_CELLS: usize = PAGE_SIZE - INTERNAL_NODE_HEADER_SIZE;
+pub const INTERNAL_NODE_MAX_CELLS: usize = INTERNAL_NODE_SPACE_FOR_CELLS / INTERNAL_NODE_CELL_SIZE;
 pub const INVALID_PAGE_NUM: u32 = u32::MAX;
-
 
 pub fn get_node_type(page: &[u8]) -> NodeType {
     match page[NODE_TYPE_OFFSET] {
@@ -93,7 +90,6 @@ pub fn get_node_max_key(pager: &mut Pager, page_num: usize) -> u32 {
         }
     }
 }
-
 
 pub fn node_parent(page: &[u8]) -> u32 {
     let bytes: [u8; 4] = page[PARENT_POINTER_OFFSET..PARENT_POINTER_OFFSET + PARENT_POINTER_SIZE]
@@ -135,7 +131,6 @@ fn update_ancestor_max_keys(
     }
 }
 
-
 pub struct LeafNode<'a> {
     pub page: &'a mut [u8],
 }
@@ -152,7 +147,7 @@ impl<'a> LeafNode<'a> {
         self.set_next_leaf(0);
     }
 
-    pub fn next_leaf(& self) -> u32 {
+    pub fn next_leaf(&self) -> u32 {
         let bytes: [u8; 4] = self.page
             [LEAF_NODE_NEXT_LEAF_OFFSET..LEAF_NODE_NEXT_LEAF_OFFSET + LEAF_NODE_NEXT_LEAF_SIZE]
             .try_into()
@@ -284,7 +279,6 @@ impl<'a> InternalNode<'a> {
         self.set_right_child(INVALID_PAGE_NUM);
     }
 
-
     pub fn update_key(&mut self, old_key: u32, new_key: u32) {
         let old_child_index = self.find_child(old_key);
         self.set_key(old_child_index, new_key);
@@ -357,7 +351,10 @@ impl<'a> InternalNode<'a> {
     pub fn set_child(&mut self, cell_num: usize, child_page_num: u32) {
         let num_keys = self.num_keys() as usize;
         if cell_num > num_keys {
-            panic!("Tried to set child_num {} > num_keys {}", cell_num, num_keys);
+            panic!(
+                "Tried to set child_num {} > num_keys {}",
+                cell_num, num_keys
+            );
         } else if cell_num == num_keys {
             self.set_right_child(child_page_num);
         } else {
@@ -488,8 +485,6 @@ pub fn leaf_node_split_and_insert(
     }
 }
 
-
-
 pub fn internal_node_split_and_insert(
     pager: &mut Pager,
     root_page_num: usize,
@@ -613,8 +608,6 @@ pub fn internal_node_split_and_insert(
     }
 }
 
-
-
 pub fn internal_node_insert(
     pager: &mut Pager,
     root_page_num: usize,
@@ -679,7 +672,8 @@ fn create_new_root(pager: &mut Pager, root_page_num: usize, right_child_page_num
         set_node_root(left_child_page.as_mut(), false);
     }
 
-    let is_left_internal = get_node_type(pager.get_page(left_child_page_num).as_ref()) == NodeType::Internal;
+    let is_left_internal =
+        get_node_type(pager.get_page(left_child_page_num).as_ref()) == NodeType::Internal;
     if is_left_internal {
         let (num_keys, right_child, children) = {
             let left_page = pager.get_page(left_child_page_num);
@@ -693,10 +687,16 @@ fn create_new_root(pager: &mut Pager, root_page_num: usize, right_child_page_num
         };
 
         for child_page_num in children {
-            set_node_parent(pager.get_page(child_page_num).as_mut(), left_child_page_num as u32);
+            set_node_parent(
+                pager.get_page(child_page_num).as_mut(),
+                left_child_page_num as u32,
+            );
         }
         if num_keys > 0 || right_child != INVALID_PAGE_NUM as usize {
-            set_node_parent(pager.get_page(right_child).as_mut(), left_child_page_num as u32);
+            set_node_parent(
+                pager.get_page(right_child).as_mut(),
+                left_child_page_num as u32,
+            );
         }
     }
 
@@ -711,8 +711,14 @@ fn create_new_root(pager: &mut Pager, root_page_num: usize, right_child_page_num
     root_node.set_key(0, left_child_max_key);
     root_node.set_right_child(right_child_page_num as u32);
 
-    set_node_parent(pager.get_page(left_child_page_num).as_mut(), root_page_num as u32);
-    set_node_parent(pager.get_page(right_child_page_num).as_mut(), root_page_num as u32);
+    set_node_parent(
+        pager.get_page(left_child_page_num).as_mut(),
+        root_page_num as u32,
+    );
+    set_node_parent(
+        pager.get_page(right_child_page_num).as_mut(),
+        root_page_num as u32,
+    );
 }
 
 pub fn print_tree(pager: &mut Pager, page_num: usize, indentation_level: usize) {

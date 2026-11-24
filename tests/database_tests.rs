@@ -14,7 +14,12 @@ impl TestDb {
     fn new(test_name: &str) -> Self {
         let id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let mut path = std::env::temp_dir();
-        path.push(format!("rustql_{}_{}_{}.db", test_name, std::process::id(), id));
+        path.push(format!(
+            "rustql_{}_{}_{}.db",
+            test_name,
+            std::process::id(),
+            id
+        ));
         let _ = fs::remove_file(&path);
         Self { path }
     }
@@ -59,11 +64,7 @@ impl Drop for TestDb {
 #[test]
 fn inserts_and_retrieves_a_row() {
     let db = TestDb::new("insert_retrieve");
-    let result = db.run(&[
-        "insert 1 user1 person1@example.com",
-        "select",
-        ".exit",
-    ]);
+    let result = db.run(&["insert 1 user1 person1@example.com", "select", ".exit"]);
 
     let expected = vec![
         "db > Executed.",
@@ -86,12 +87,7 @@ fn insert_strings_that_are_the_maximum_length() {
 
     let result = db.run(&[&insert_cmd, "select", ".exit"]);
 
-    let expected = vec![
-        "db > Executed.",
-        &expected_row,
-        "Executed.",
-        "db > ",
-    ];
+    let expected = vec!["db > Executed.", &expected_row, "Executed.", "db > "];
 
     assert_eq!(result, expected);
 }
@@ -100,23 +96,13 @@ fn insert_strings_that_are_the_maximum_length() {
 fn keep_data_after_closing_connection() {
     let db = TestDb::new("persistence");
 
-    let result1 = db.run(&[
-        "insert 1 user1 person1@example.com",
-        ".exit",
-    ]);
+    let result1 = db.run(&["insert 1 user1 person1@example.com", ".exit"]);
     assert_eq!(result1, vec!["db > Executed.", "db > "]);
 
-    let result2 = db.run(&[
-        "select",
-        ".exit",
-    ]);
+    let result2 = db.run(&["select", ".exit"]);
     assert_eq!(
         result2,
-        vec![
-            "db > 1,user1,person1@example.com",
-            "Executed.",
-            "db > ",
-        ]
+        vec!["db > 1,user1,person1@example.com", "Executed.", "db > ",]
     );
 }
 
@@ -274,8 +260,10 @@ fn stress_test_1400_rows_out_of_order_and_persisted() {
 
     println!("Total lines returned by select: {}", select_output.len());
     println!("Lines 170..177: {:?}", &select_output[170..177]);
-    println!("Last 5 lines: {:?}", &select_output[select_output.len() - 5..]);
-
+    println!(
+        "Last 5 lines: {:?}",
+        &select_output[select_output.len() - 5..]
+    );
 
     assert_eq!(select_output.len(), (total_rows + 2) as usize);
     assert_eq!(select_output[0], "db > 1,user1,person1@example.com");

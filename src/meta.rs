@@ -1,4 +1,4 @@
-use crate::btree::{print_constants, LeafNode};
+use crate::btree::{LeafNode, print_constants};
 use crate::storage::Table;
 use std::process;
 

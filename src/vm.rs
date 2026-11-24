@@ -1,4 +1,4 @@
-use crate::btree::{leaf_node_split_and_insert, LeafNode, LEAF_NODE_MAX_CELLS};
+use crate::btree::{LEAF_NODE_MAX_CELLS, LeafNode, leaf_node_split_and_insert};
 use crate::compiler::Statement;
 use crate::storage::{Cursor, Row, TABLE_MAX_ROWS, Table, Value};
 
@@ -15,16 +15,19 @@ pub fn execute_statement(statement: &Statement, table: &mut Table) -> Result<(),
     }
 }
 
-fn primary_key(row: &Row) -> Option<u32> {
-    match row.values.first()? {
+fn primary_key(table: &Table, row: &Row) -> Option<u32> {
+    let index = table.schema.primary_key_index?;
+    match row.values.get(index)? {
         Value::Integer(id) => u32::try_from(*id).ok(),
         _ => None,
     }
 }
 
-
 fn execute_insert(row: &Row, table: &mut Table) -> Result<(), ExecuteError> {
-    let key_to_insert = match primary_key(row) {
+    if !table.validate_row(row) {
+        return Err(ExecuteError::InvalidRow);
+    }
+    let key_to_insert = match primary_key(table, row) {
         Some(key) => key,
         None => return Err(ExecuteError::InvalidRow),
     };
@@ -57,11 +60,7 @@ fn execute_insert(row: &Row, table: &mut Table) -> Result<(), ExecuteError> {
         );
     } else {
         let page = cursor.table.pager.get_page(page_num);
-        LeafNode::new(page.as_mut()).insert(
-            cell_num,
-            key_to_insert,
-            &row_bytes,
-        );
+        LeafNode::new(page.as_mut()).insert(cell_num, key_to_insert, &row_bytes);
     }
 
     Ok(())
@@ -71,7 +70,7 @@ fn execute_select(table: &mut Table) -> Result<(), ExecuteError> {
     let mut cursor = Cursor::table_start(table);
 
     while !cursor.end_of_table {
-        let row = Row::deserialize(cursor.value());
+        let row = Row::from_bytes(cursor.value());
         println!("{}", row);
         cursor.advance();
     }

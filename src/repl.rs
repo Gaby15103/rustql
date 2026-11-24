@@ -7,9 +7,7 @@ pub fn print_prompt() {
 
 pub fn read_input(buffer: &mut String) {
     buffer.clear();
-    let bytes_read = io::stdin()
-        .read_line(buffer)
-        .expect("Error reading input");
+    let bytes_read = io::stdin().read_line(buffer).expect("Error reading input");
 
     if bytes_read == 0 {
         println!();

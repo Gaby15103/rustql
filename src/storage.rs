@@ -1,4 +1,4 @@
-use crate::btree::{get_node_type, InternalNode, LeafNode, NodeType};
+use crate::btree::{InternalNode, LeafNode, NodeType, get_node_type};
 use std::fmt::{self, write};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -28,6 +28,12 @@ pub enum Value {
     Text(String),
     Null,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueType {
+    Integer,
+    Text,
+    Null,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
@@ -53,6 +59,7 @@ impl Row {
     //         email,
     //     }
     // }
+
     pub fn for_example_table(id: u32, username: &str, email: &str) -> Self {
         Self {
             values: vec![
@@ -74,9 +81,12 @@ impl Row {
         Self::deserialize(bytes)
     }
 
-    pub fn serialize(&self, destination: &mut [u8]) {
-        let [Value::Integer(id), Value::Text(username), Value::Text(email)] =
-            self.values.as_slice()
+    fn serialize(&self, destination: &mut [u8]) {
+        let [
+            Value::Integer(id),
+            Value::Text(username),
+            Value::Text(email),
+        ] = self.values.as_slice()
         else {
             panic!("expected row values [Integer, Text, Text]");
         };
@@ -93,22 +103,17 @@ impl Row {
         let mut email_bytes = [0; EMAIL_SIZE];
         let email_len = email.len().min(EMAIL_SIZE);
         email_bytes[..email_len].copy_from_slice(&email.as_bytes()[..email_len]);
-        destination[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE]
-            .copy_from_slice(&email_bytes);
+        destination[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE].copy_from_slice(&email_bytes);
     }
 
-    pub fn deserialize(source: &[u8]) -> Self {
+    fn deserialize(source: &[u8]) -> Self {
         let id_bytes: [u8; ID_SIZE] = source[ID_OFFSET..ID_OFFSET + ID_SIZE]
             .try_into()
             .expect("invalid ID bytes");
         let id = u32::from_ne_bytes(id_bytes);
 
-        let username = read_fixed_text(
-            &source[USERNAME_OFFSET..USERNAME_OFFSET + USERNAME_SIZE],
-        );
-        let email = read_fixed_text(
-            &source[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE],
-        );
+        let username = read_fixed_text(&source[USERNAME_OFFSET..USERNAME_OFFSET + USERNAME_SIZE]);
+        let email = read_fixed_text(&source[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE]);
 
         Self {
             values: vec![
@@ -120,7 +125,10 @@ impl Row {
     }
 }
 fn read_fixed_text(bytes: &[u8]) -> String {
-    let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
     String::from_utf8_lossy(&bytes[..end]).into_owned()
 }
 impl fmt::Display for Row {
@@ -144,6 +152,7 @@ impl fmt::Display for Row {
 pub struct Table {
     pub root_page_num: usize,
     pub pager: Pager,
+    pub schema: TableSchema,
 }
 
 impl Table {
@@ -160,6 +169,7 @@ impl Table {
         Self {
             root_page_num,
             pager,
+            schema: example_table_schema(),
         }
     }
 
@@ -172,12 +182,16 @@ impl Table {
         }
     }
 
+    pub fn validate_row(&self, row: &Row) -> bool {
+        self.schema.validate(row)
+    }
+
     pub fn find(&mut self, key: u32) -> Cursor<'_> {
         let mut page_num = self.root_page_num;
 
         loop {
             let page = self.pager.get_page(page_num);
-            match get_node_type(page.as_ref()){
+            match get_node_type(page.as_ref()) {
                 NodeType::Internal => {
                     let internal = InternalNode::new(page.as_mut());
                     let child_index = internal.find_child(key);
@@ -197,6 +211,63 @@ impl Table {
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Column {
+    pub name: String,
+    pub value_type: ValueType,
+    pub max_length: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableSchema {
+    pub name: String,
+    pub columns: Vec<Column>,
+    pub primary_key_index: Option<usize>,
+}
+
+pub fn example_table_schema() -> TableSchema {
+    TableSchema {
+        name: "people".to_owned(),
+        columns: vec![
+            Column {
+                name: "id".to_owned(),
+                value_type: ValueType::Integer,
+                max_length: None,
+            },
+            Column {
+                name: "username".to_owned(),
+                value_type: ValueType::Text,
+                max_length: Some(32),
+            },
+            Column {
+                name: "email".to_owned(),
+                value_type: ValueType::Text,
+                max_length: Some(255),
+            },
+        ],
+        primary_key_index: Some(0),
+    }
+}
+
+impl TableSchema {
+    pub fn validate(&self, row: &Row) -> bool {
+        if row.values.len() != self.columns.len() {
+            return false;
+        }
+
+        self.columns.iter().zip(&row.values).all(|(column, value)| {
+            match (&column.value_type, value) {
+                (ValueType::Integer, Value::Integer(_)) => true,
+                (ValueType::Text, Value::Text(text)) => {
+                    column.max_length.is_none_or(|limit| text.len() <= limit)
+                }
+                (ValueType::Null, Value::Null) => true,
+                _ => false,
+            }
+        })
     }
 }
 
