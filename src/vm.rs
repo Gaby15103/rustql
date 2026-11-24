@@ -1,6 +1,6 @@
 use crate::btree::{LEAF_NODE_MAX_CELLS, LeafNode, leaf_node_split_and_insert};
 use crate::compiler::Statement;
-use crate::storage::{Cursor, Row, TABLE_MAX_ROWS, Table, Value};
+use crate::storage::{Cursor, Row, Table, Value};
 
 pub enum ExecuteError {
     TableFull,
@@ -32,8 +32,18 @@ fn execute_insert(row: &Row, table: &mut Table) -> Result<(), ExecuteError> {
         None => return Err(ExecuteError::InvalidRow),
     };
 
-    let row_bytes = row.to_bytes();
-    let cursor = table.find(key_to_insert);
+    let row_bytes = row
+        .to_bytes(&table.schema)
+        .map_err(|_| ExecuteError::InvalidRow)?;
+    let schema = table.schema.clone();
+    let mut cursor = Cursor::table_start(table);
+
+    while !cursor.end_of_table {
+        let row = Row::from_bytes(cursor.value(), &schema)
+            .map_err(|_| ExecuteError::InvalidRow)?;
+        println!("{row}");
+        cursor.advance();
+    }
 
     let root_page_num = cursor.table.root_page_num;
     let page_num = cursor.page_num;
@@ -67,11 +77,15 @@ fn execute_insert(row: &Row, table: &mut Table) -> Result<(), ExecuteError> {
 }
 
 fn execute_select(table: &mut Table) -> Result<(), ExecuteError> {
+    // Clone before borrowing the table through the cursor.
+    let schema = table.schema.clone();
     let mut cursor = Cursor::table_start(table);
 
     while !cursor.end_of_table {
-        let row = Row::from_bytes(cursor.value());
-        println!("{}", row);
+        let row = Row::from_bytes(cursor.value(), &schema)
+            .map_err(|_| ExecuteError::InvalidRow)?;
+
+        println!("{row}");
         cursor.advance();
     }
 

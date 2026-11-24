@@ -40,7 +40,7 @@ fn main() {
             }
         }
 
-        let statement = match prepare_statement(&input_buffer) {
+        let statement = match prepare_statement(&input_buffer, &table.schema) {
             Ok(stmt) => stmt,
             Err(PrepareError::SyntaxError) => {
                 println!("Syntzx error. Could not parse statement");
@@ -50,8 +50,8 @@ fn main() {
                 println!("Unrecognized keyword at start of '{}'.", input_buffer);
                 continue;
             }
-            Err(PrepareError::StringMaxLengthLimitExceeded(message)) => {
-                println!("Error max length exceed : {}", message);
+            Err(PrepareError::InvalidRow(message)) => {
+                println!("Invalid row: {message}");
                 continue;
             }
         };

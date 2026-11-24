@@ -1,4 +1,4 @@
-use crate::storage::{COLUMN_EMAIL_SIZE, COLUMN_USERNAME_SIZE, Row};
+use crate::storage::{Row, TableSchema, Value};
 
 #[derive(Debug)]
 pub enum Statement {
@@ -9,10 +9,13 @@ pub enum Statement {
 pub enum PrepareError {
     SyntaxError,
     UnrecognizedStatement,
-    StringMaxLengthLimitExceeded(String),
+    InvalidRow(String),
 }
 
-pub fn prepare_statement(input: &str) -> Result<Statement, PrepareError> {
+pub fn prepare_statement(
+    input: &str,
+    schema: &TableSchema,
+) -> Result<Statement, PrepareError> {
     if input.starts_with("insert") {
         let mut parts = input.split_whitespace();
         let _keyword = parts.next();
@@ -23,22 +26,19 @@ pub fn prepare_statement(input: &str) -> Result<Statement, PrepareError> {
 
         let id: u32 = id_str.parse().map_err(|_| PrepareError::SyntaxError)?;
 
-        if (username.len() > COLUMN_USERNAME_SIZE) {
-            let username_len = username.len().to_string();
-            return Err(PrepareError::StringMaxLengthLimitExceeded(
-                format!("username: {username_len} > max: {COLUMN_USERNAME_SIZE}").to_owned(),
-            ));
-        }
-        if (email.len() > COLUMN_EMAIL_SIZE) {
-            let email_len = email.len().to_string();
-            return Err(PrepareError::StringMaxLengthLimitExceeded(
-                format!("email: {email_len} > max: {COLUMN_EMAIL_SIZE}").to_owned(),
-            ));
-        }
+        let values = vec![
+            Value::Integer(id as i64),
+            Value::Text(username.to_owned()),
+            Value::Text(email.to_owned()),
+        ];
 
-        let row = Row::for_example_table(id, username, email);
+        let row = schema
+            .make_row(values)
+            .map_err(|error| PrepareError::InvalidRow(format!("{error:?}")))?;
+
         return Ok(Statement::Insert(row));
     }
+
     if input == "select" {
         return Ok(Statement::Select);
     }

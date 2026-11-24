@@ -3,22 +3,10 @@ use std::fmt::{self, write};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 
-pub const COLUMN_USERNAME_SIZE: usize = 32;
-pub const COLUMN_EMAIL_SIZE: usize = 255;
-
-pub const ID_SIZE: usize = size_of::<u32>();
-pub const USERNAME_SIZE: usize = COLUMN_USERNAME_SIZE;
-pub const EMAIL_SIZE: usize = COLUMN_EMAIL_SIZE;
-
-pub const ID_OFFSET: usize = 0;
-pub const USERNAME_OFFSET: usize = ID_OFFSET + ID_SIZE;
-pub const EMAIL_OFFSET: usize = USERNAME_OFFSET + USERNAME_SIZE;
-pub const ROW_SIZE: usize = ID_SIZE + USERNAME_SIZE + EMAIL_SIZE;
-
 pub const PAGE_SIZE: usize = 4096;
 pub const TABLE_MAX_PAGES: usize = 400;
-pub const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
-pub const TABLE_MAX_ROWS: usize = ROWS_PER_PAGE * TABLE_MAX_PAGES;
+// Temporary: the fixed-size leaf-cell format still requires this.
+pub const ROW_SIZE: usize = 4 + 32 + 255;
 
 type Page = Box<[u8; PAGE_SIZE]>;
 
@@ -33,6 +21,16 @@ pub enum ValueType {
     Integer,
     Text,
     Null,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RowError {
+    WrongColumnCount { expected: usize, actual: usize },
+    TypeMismatch { column: String },
+    TextTooLong { column: String, max_length: usize },
+    UnsupportedNull { column: String },
+    IntegerOutOfRange { column: String },
+    InvalidRecordSize { expected: usize, actual: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,59 +68,116 @@ impl Row {
         }
     }
 
-    pub fn to_bytes(&self) -> [u8; ROW_SIZE] {
-        let mut bytes = [0u8; ROW_SIZE];
-        self.serialize(&mut bytes);
-        bytes
+    pub fn to_bytes(&self, schema: &TableSchema) -> Result<Vec<u8>, RowError> {
+        let mut bytes = vec![0; ROW_SIZE];
+        self.serialize(schema, &mut bytes)?;
+        Ok(bytes)
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        assert_eq!(bytes.len(), ROW_SIZE);
-        Self::deserialize(bytes)
-    }
-
-    fn serialize(&self, destination: &mut [u8]) {
-        let [
-            Value::Integer(id),
-            Value::Text(username),
-            Value::Text(email),
-        ] = self.values.as_slice()
-        else {
-            panic!("expected row values [Integer, Text, Text]");
-        };
-
-        let id: u32 = (*id).try_into().expect("id must fit in u32");
-        destination[ID_OFFSET..ID_OFFSET + ID_SIZE].copy_from_slice(&id.to_ne_bytes());
-
-        let mut username_bytes = [0; USERNAME_SIZE];
-        let username_len = username.len().min(USERNAME_SIZE);
-        username_bytes[..username_len].copy_from_slice(&username.as_bytes()[..username_len]);
-        destination[USERNAME_OFFSET..USERNAME_OFFSET + USERNAME_SIZE]
-            .copy_from_slice(&username_bytes);
-
-        let mut email_bytes = [0; EMAIL_SIZE];
-        let email_len = email.len().min(EMAIL_SIZE);
-        email_bytes[..email_len].copy_from_slice(&email.as_bytes()[..email_len]);
-        destination[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE].copy_from_slice(&email_bytes);
-    }
-
-    fn deserialize(source: &[u8]) -> Self {
-        let id_bytes: [u8; ID_SIZE] = source[ID_OFFSET..ID_OFFSET + ID_SIZE]
-            .try_into()
-            .expect("invalid ID bytes");
-        let id = u32::from_ne_bytes(id_bytes);
-
-        let username = read_fixed_text(&source[USERNAME_OFFSET..USERNAME_OFFSET + USERNAME_SIZE]);
-        let email = read_fixed_text(&source[EMAIL_OFFSET..EMAIL_OFFSET + EMAIL_SIZE]);
-
-        Self {
-            values: vec![
-                Value::Integer(id as i64),
-                Value::Text(username),
-                Value::Text(email),
-            ],
+    pub fn from_bytes(bytes: &[u8], schema: &TableSchema) -> Result<Self, RowError> {
+        if bytes.len() != ROW_SIZE {
+            return Err(RowError::InvalidRecordSize {
+                expected: ROW_SIZE,
+                actual: bytes.len(),
+            });
         }
+
+        Self::deserialize(schema, bytes)
     }
+
+    fn serialize(&self, schema: &TableSchema, destination: &mut [u8]) -> Result<(), RowError> {
+        if !schema.validate(self) {
+            return Err(RowError::TypeMismatch {
+                column: "row".to_owned(),
+            });
+        }
+
+        let expected_size = schema.record_size()?;
+        if destination.len() != expected_size || expected_size != ROW_SIZE {
+            return Err(RowError::InvalidRecordSize {
+                expected: ROW_SIZE,
+                actual: expected_size,
+            });
+        }
+
+        destination.fill(0);
+        let mut offset = 0;
+
+        for (column, value) in schema.columns.iter().zip(&self.values) {
+            let width = column.encoded_width()?;
+
+            match value {
+                Value::Integer(value) => {
+                    let value = u32::try_from(*value).map_err(|_| RowError::IntegerOutOfRange {
+                        column: column.name.clone(),
+                    })?;
+
+                    destination[offset..offset + 4].copy_from_slice(&value.to_ne_bytes());
+                }
+                Value::Text(text) => {
+                    copy_fixed_text(&mut destination[offset..offset + width], text);
+                }
+                Value::Null => {
+                    return Err(RowError::UnsupportedNull {
+                        column: column.name.clone(),
+                    });
+                }
+            }
+
+            offset += width;
+        }
+
+        Ok(())
+    }
+
+    fn deserialize(schema: &TableSchema, source: &[u8]) -> Result<Self, RowError> {
+        let expected_size = schema.record_size()?;
+        if source.len() != expected_size || expected_size != ROW_SIZE {
+            return Err(RowError::InvalidRecordSize {
+                expected: ROW_SIZE,
+                actual: source.len(),
+            });
+        }
+
+        let mut values = Vec::with_capacity(schema.columns.len());
+        let mut offset = 0;
+
+        for column in &schema.columns {
+            let width = column.encoded_width()?;
+            let field = &source[offset..offset + width];
+
+            let value = match column.value_type {
+                ValueType::Integer => {
+                    let int_bytes: [u8; 4] =
+                        field.try_into().map_err(|_| RowError::InvalidRecordSize {
+                            expected: 4,
+                            actual: field.len(),
+                        })?;
+
+                    Value::Integer(u32::from_ne_bytes(int_bytes) as i64)
+                }
+                ValueType::Text => Value::Text(read_fixed_text(field)),
+                ValueType::Null => {
+                    return Err(RowError::UnsupportedNull {
+                        column: column.name.clone(),
+                    });
+                }
+            };
+
+            values.push(value);
+            offset += width;
+        }
+
+        schema.make_row(values)
+    }
+}
+
+fn copy_fixed_text(destination: &mut [u8], text: &str) {
+    destination.fill(0);
+
+    let bytes = text.as_bytes();
+    let length = bytes.len().min(destination.len());
+    destination[..length].copy_from_slice(&bytes[..length]);
 }
 fn read_fixed_text(bytes: &[u8]) -> String {
     let end = bytes
@@ -221,6 +276,22 @@ pub struct Column {
     pub max_length: Option<usize>,
 }
 
+impl Column {
+    fn encoded_width(&self) -> Result<usize, RowError> {
+        match self.value_type {
+            ValueType::Integer => Ok(4),
+            ValueType::Text => self.max_length.ok_or_else(|| {
+                RowError::TypeMismatch {
+                    column: self.name.clone(),
+                }
+            }),
+            ValueType::Null => Err(RowError::UnsupportedNull {
+                column: self.name.clone(),
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableSchema {
     pub name: String,
@@ -253,21 +324,46 @@ pub fn example_table_schema() -> TableSchema {
 }
 
 impl TableSchema {
-    pub fn validate(&self, row: &Row) -> bool {
-        if row.values.len() != self.columns.len() {
-            return false;
+    pub fn make_row(&self, values: Vec<Value>) -> Result<Row, RowError> {
+        if values.len() != self.columns.len() {
+            return Err(RowError::WrongColumnCount {
+                expected: self.columns.len(),
+                actual: values.len(),
+            });
         }
 
-        self.columns.iter().zip(&row.values).all(|(column, value)| {
+        for (column, value) in self.columns.iter().zip(&values) {
             match (&column.value_type, value) {
-                (ValueType::Integer, Value::Integer(_)) => true,
+                (ValueType::Integer, Value::Integer(_)) => {}
                 (ValueType::Text, Value::Text(text)) => {
-                    column.max_length.is_none_or(|limit| text.len() <= limit)
+                    if let Some(max_length) = column.max_length {
+                        if text.len() > max_length {
+                            return Err(RowError::TextTooLong {
+                                column: column.name.clone(),
+                                max_length,
+                            });
+                        }
+                    }
                 }
-                (ValueType::Null, Value::Null) => true,
-                _ => false,
+                (ValueType::Null, Value::Null) => {}
+                _ => {
+                    return Err(RowError::TypeMismatch {
+                        column: column.name.clone(),
+                    });
+                }
             }
+        }
+
+        Ok(Row { values })
+    }
+    fn record_size(&self) -> Result<usize, RowError> {
+        self.columns.iter().try_fold(0usize, |total, column| {
+            Ok(total + column.encoded_width()?)
         })
+    }
+
+    fn validate(&self, row: &Row) -> bool {
+        self.make_row(row.values.clone()).is_ok()
     }
 }
 
