@@ -1,4 +1,4 @@
-use crate::storage::{Row, Table, TableSchema, Value};
+use crate::storage::{Row, TableSchema, Value};
 
 #[derive(Debug)]
 pub enum Statement {

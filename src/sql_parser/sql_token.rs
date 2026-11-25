@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     /// Reserved Words (normalized to uppercase during lexing
@@ -75,7 +74,6 @@ pub enum Keyword {
     Null,
 }
 
-
 #[derive(Debug, PartialEq)]
 pub enum Statement {
     Select(SelectStmt),
@@ -97,10 +95,7 @@ pub struct SelectStmt {
 pub enum SelectItem {
     Wildcard,
     Expr(Expr),
-    AliasedExpr {
-        expr: Expr,
-        alias: String,
-    },
+    AliasedExpr { expr: Expr, alias: String },
 }
 
 #[derive(Debug, PartialEq)]
@@ -152,22 +147,22 @@ pub struct DeleteStmt {
 
 #[derive(Debug, PartialEq)]
 pub enum Expr {
-    Identifier(String),       // e.g., column name `age`
-    Literal(LiteralValue),    // e.g., `42`, `'Alice'`, `true`
+    Identifier(String),    // e.g., column name `age`
+    Literal(LiteralValue), // e.g., `42`, `'Alice'`, `true`
 
     // Recursive nodes (must use Box<Expr> for fixed stack size)
     UnaryOp {
-        op: UnaryOperator,    // e.g., `NOT active` or `-5`
+        op: UnaryOperator, // e.g., `NOT active` or `-5`
         expr: Box<Expr>,
     },
     BinaryOp {
-        left: Box<Expr>,      // e.g., `age >= 18 AND active = true`
+        left: Box<Expr>, // e.g., `age >= 18 AND active = true`
         op: BinaryOperator,
         right: Box<Expr>,
     },
     FunctionCall {
-        name: String,         // e.g., `COUNT(*)` or `LOWER(name)`
-        args: Vec<Expr>,      // Vec already heap-allocates, so no Box needed!
+        name: String,    // e.g., `COUNT(*)` or `LOWER(name)`
+        args: Vec<Expr>, // Vec already heap-allocates, so no Box needed!
     },
 }
 
@@ -181,22 +176,22 @@ pub enum LiteralValue {
 
 #[derive(Debug, PartialEq)]
 pub enum BinaryOperator {
-    Eq,       // =
-    NotEq,    // != or <>
-    Lt,       // <
-    Gt,       // >
-    LtEq,     // <=
-    GtEq,     // >=
-    And,      // AND
-    Or,       // OR
-    Plus,     // +
-    Minus,    // -
-    Star,     // *
-    Slash,    // /
+    Eq,    // =
+    NotEq, // != or <>
+    Lt,    // <
+    Gt,    // >
+    LtEq,  // <=
+    GtEq,  // >=
+    And,   // AND
+    Or,    // OR
+    Plus,  // +
+    Minus, // -
+    Star,  // *
+    Slash, // /
 }
 
 #[derive(Debug, PartialEq)]
 pub enum UnaryOperator {
-    Not,      // NOT
-    Minus,    // -
+    Not,   // NOT
+    Minus, // -
 }

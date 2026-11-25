@@ -1,4 +1,7 @@
-use crate::sql_parser::sql_token::{Assignment, BinaryOperator, ColumnDef, CreateTableStmt, DataType, DeleteStmt, Expr, InsertStmt, Keyword, LiteralValue, SelectItem, SelectStmt, Statement, Token, UnaryOperator, UpdateStmt};
+use crate::sql_parser::sql_token::{
+    Assignment, BinaryOperator, ColumnDef, CreateTableStmt, DataType, DeleteStmt, Expr, InsertStmt,
+    Keyword, LiteralValue, SelectItem, SelectStmt, Statement, Token, UnaryOperator, UpdateStmt,
+};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -39,16 +42,19 @@ impl Parser {
         if self.consume_keyword(expected) {
             Ok(())
         } else {
-            Err(format!("Expected keyword {:?}, found {:?}", expected, self.peek()))
+            Err(format!(
+                "Expected keyword {:?}, found {:?}",
+                expected,
+                self.peek()
+            ))
         }
     }
-
 
     fn consume_token(&mut self, expected: &Token) -> bool {
         if self.peek() == expected {
             self.advance();
             true
-        }else{
+        } else {
             false
         }
     }
@@ -56,15 +62,15 @@ impl Parser {
     fn expect_token(&mut self, expected: Token) -> Result<(), String> {
         if self.consume_token(&expected) {
             Ok(())
-        }else {
+        } else {
             Err(format!("expected {:?} but got {:?}", expected, self.peek()))
         }
     }
 
     fn expect_identifier(&mut self) -> Result<String, String> {
-        match self.advance(){
+        match self.advance() {
             Token::Identifier(name) => Ok(name),
-            other => Err(format!("Expected identifier, found {:?}", other))
+            other => Err(format!("Expected identifier, found {:?}", other)),
         }
     }
 
@@ -80,35 +86,40 @@ impl Parser {
         Ok(stmts)
     }
 
-    pub fn parse_statement(&mut self) -> Result<Statement, String>{
+    pub fn parse_statement(&mut self) -> Result<Statement, String> {
         let stmt = match self.peek() {
             Token::Keyword(Keyword::Select) => Statement::Select(self.parse_select()?),
             Token::Keyword(Keyword::Insert) => Statement::Insert(self.parse_insert()?),
             Token::Keyword(Keyword::Create) => Statement::CreateTable(self.parse_create_table()?),
             Token::Keyword(Keyword::Update) => Statement::Update(self.parse_update()?),
             Token::Keyword(Keyword::Delete) => Statement::Delete(self.parse_delete()?),
-            other => return Err(format!("Unexpected token at start of statement: {:?}", other)),
+            other => {
+                return Err(format!(
+                    "Unexpected token at start of statement: {:?}",
+                    other
+                ));
+            }
         };
         self.consume_token(&Token::Semicolon);
         Ok(stmt)
     }
 
-    fn parse_select(&mut self) -> Result<SelectStmt, String>{
+    fn parse_select(&mut self) -> Result<SelectStmt, String> {
         self.expect_keyword(Keyword::Select)?;
 
         let mut columns = Vec::new();
         loop {
             if self.consume_token(&Token::Star) {
                 columns.push(SelectItem::Wildcard);
-            }else{
+            } else {
                 let expr = self.parse_expr(0)?;
-                if self.consume_keyword(Keyword::As){
+                if self.consume_keyword(Keyword::As) {
                     let alias = self.expect_identifier()?;
-                    columns.push(SelectItem::AliasedExpr {expr, alias});
-                }else if let Token::Identifier(_) = self.peek(){
+                    columns.push(SelectItem::AliasedExpr { expr, alias });
+                } else if let Token::Identifier(_) = self.peek() {
                     let alias = self.expect_identifier()?;
-                    columns.push(SelectItem::AliasedExpr {expr, alias});
-                }else{
+                    columns.push(SelectItem::AliasedExpr { expr, alias });
+                } else {
                     columns.push(SelectItem::Expr(expr));
                 }
             }
@@ -120,22 +131,22 @@ impl Parser {
         self.expect_keyword(Keyword::From)?;
         let from = self.expect_identifier()?;
 
-        let where_clause = if self.consume_keyword(Keyword::Where){
+        let where_clause = if self.consume_keyword(Keyword::Where) {
             Some(self.parse_expr(0)?)
-        }else{
+        } else {
             None
         };
 
-        let limit = if self.consume_keyword(Keyword::Limit){
+        let limit = if self.consume_keyword(Keyword::Limit) {
             match self.advance() {
                 Token::Number(n) if n >= 0 => Some(n as usize),
                 other => return Err(format!("Expected non-negative limit, found {:?}", other)),
             }
-        }else{
+        } else {
             None
         };
 
-        Ok(SelectStmt{
+        Ok(SelectStmt {
             columns,
             from,
             where_clause,
@@ -143,44 +154,44 @@ impl Parser {
         })
     }
 
-    fn parse_insert(&mut self) -> Result<InsertStmt, String>{
+    fn parse_insert(&mut self) -> Result<InsertStmt, String> {
         self.expect_keyword(Keyword::Insert)?;
         self.expect_keyword(Keyword::Into)?;
         let table = self.expect_identifier()?;
 
-        let columns = if self.consume_token(&Token::LParen){
+        let columns = if self.consume_token(&Token::LParen) {
             let mut cols = Vec::new();
-            loop{
+            loop {
                 cols.push(self.expect_identifier()?);
-                if !self.consume_token(&Token::Comma){
+                if !self.consume_token(&Token::Comma) {
                     break;
                 }
             }
             self.expect_token(Token::RParen)?;
             Some(cols)
-        }else{
+        } else {
             None
         };
         self.expect_keyword(Keyword::Values)?;
 
         let mut values = Vec::new();
-        loop{
+        loop {
             self.expect_token(Token::LParen)?;
             let mut row = Vec::new();
-            loop{
+            loop {
                 row.push(self.parse_expr(0)?);
-                if !self.consume_token(&Token::Comma){
+                if !self.consume_token(&Token::Comma) {
                     break;
                 }
             }
             self.expect_token(Token::RParen)?;
             values.push(row);
 
-            if !self.consume_token(&Token::Comma){
+            if !self.consume_token(&Token::Comma) {
                 break;
             }
         }
-        Ok(InsertStmt{
+        Ok(InsertStmt {
             table,
             columns,
             values,
@@ -299,8 +310,8 @@ impl Parser {
         })
     }
 
-    fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, String>{
-        let mut lhs = match self.advance(){
+    fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, String> {
+        let mut lhs = match self.advance() {
             Token::Number(n) => Expr::Literal(LiteralValue::Integer(n)),
             Token::StringLiteral(s) => Expr::Literal(LiteralValue::String(s)),
             Token::Keyword(Keyword::True) => Expr::Literal(LiteralValue::Boolean(true)),
@@ -357,7 +368,7 @@ impl Parser {
             other => return Err(format!("Unexpected token in expression: {:?}", other)),
         };
 
-        while let Some((op, l_bp, r_bp)) = infix_binding_power(self.peek()){
+        while let Some((op, l_bp, r_bp)) = infix_binding_power(self.peek()) {
             if l_bp < min_bp {
                 break;
             }

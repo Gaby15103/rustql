@@ -5,6 +5,7 @@ mod repl;
 mod storage;
 mod vm;
 mod sql_parser;
+use sql_parser::{Lexer, Parser, Statement};
 
 use compiler::{PrepareError, prepare_statement};
 use meta::{MetaAction, MetaError, do_meta_command};
