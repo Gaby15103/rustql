@@ -5,7 +5,6 @@ mod repl;
 mod storage;
 mod vm;
 mod sql_parser;
-use sql_parser::{Lexer, Parser, Statement};
 
 use compiler::{PrepareError, prepare_statement};
 use meta::{MetaAction, MetaError, do_meta_command};
@@ -13,6 +12,10 @@ use repl::{print_prompt, read_input};
 use std::{env, process};
 use storage::Table;
 use vm::{ExecuteError, execute_statement};
+
+use crate::sql_parser::{
+    Lexer, Parser,
+};
 
 fn main() {
     let filename = env::args().nth(1).unwrap_or_else(|| {
@@ -42,18 +45,34 @@ fn main() {
             }
         }
 
-        let statement = match prepare_statement(&input_buffer, &table.schema) {
-            Ok(stmt) => stmt,
-            Err(PrepareError::SyntaxError) => {
-                println!("Syntzx error. Could not parse statement");
+        use sql_parser::{Lexer, Parser};
+
+        let tokens = Lexer::new(&input_buffer)
+            .tokenize()
+            .map_err(|error| format!("SQL error: {error}"));
+
+        let tokens = match tokens {
+            Ok(tokens) => tokens,
+            Err(error) => {
+                println!("{error}");
                 continue;
             }
-            Err(PrepareError::UnrecognizedStatement) => {
-                println!("Unrecognized keyword at start of '{}'.", input_buffer);
+        };
+
+        let mut parser = Parser::new(tokens);
+        let statements = match parser.parse_statements() {
+            Ok(statements) => statements,
+            Err(error) => {
+                println!("SQL error: {error}");
                 continue;
             }
-            Err(PrepareError::InvalidRow(message)) => {
-                println!("Invalid row: {message}");
+        };
+
+        let statement = match statements.as_slice() {
+            [statement] => statement,
+            [] => continue,
+            _ => {
+                println!("Error: enter one SQL statement at a time.");
                 continue;
             }
         };

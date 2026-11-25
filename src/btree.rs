@@ -131,6 +131,50 @@ fn update_ancestor_max_keys(
     }
 }
 
+pub struct Cursor<'a> {
+    pub table: &'a mut Table,
+    pub page_num: usize,
+    pub cell_num: usize,
+    pub end_of_table: bool,
+}
+
+impl<'a> Cursor<'a> {
+    pub fn table_start(table: &'a mut Table) -> Self {
+        let mut cursor = table.find(0);
+
+        let page = cursor.table.pager.get_page(cursor.page_num);
+        let num_cells = LeafNode::new(page.as_mut()).num_cells() as usize;
+        cursor.end_of_table = num_cells == 0;
+
+        cursor
+    }
+
+    pub fn value(&mut self) -> &mut [u8] {
+        let page = self.table.pager.get_page(self.page_num);
+        let offset = crate::btree::LEAF_NODE_HEADER_SIZE
+            + self.cell_num * crate::btree::LEAF_NODE_CELL_SIZE
+            + crate::btree::LEAF_NODE_VALUE_OFFSET;
+        &mut page[offset..offset + crate::btree::LEAF_NODE_VALUE_SIZE]
+    }
+
+    pub fn advance(&mut self) {
+        let page = self.table.pager.get_page(self.page_num);
+        let leaf = LeafNode::new(page.as_mut());
+        let num_cells = leaf.num_cells() as usize;
+        let next_leaf = leaf.next_leaf() as usize;
+
+        self.cell_num += 1;
+        if self.cell_num >= num_cells {
+            if next_leaf == 0 {
+                self.end_of_table = true;
+            } else {
+                self.page_num = next_leaf;
+                self.cell_num = 0;
+            }
+        }
+    }
+}
+
 pub struct LeafNode<'a> {
     pub page: &'a mut [u8],
 }

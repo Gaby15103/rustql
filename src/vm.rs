@@ -1,5 +1,5 @@
 use crate::btree::{LEAF_NODE_MAX_CELLS, LeafNode, leaf_node_split_and_insert};
-use crate::compiler::Statement;
+use crate::sql_parser::{CreateTableStmt, DeleteStmt, InsertStmt, SelectStmt, Statement, UpdateStmt};
 use crate::storage::{Cursor, Row, Table, Value};
 
 pub enum ExecuteError {
@@ -11,8 +11,11 @@ pub enum ExecuteError {
 
 pub fn execute_statement(statement: &Statement, table: &mut Table) -> Result<(), ExecuteError> {
     match statement {
-        Statement::Insert(row) => execute_insert(row, table),
-        Statement::Select => execute_select(table),
+        Statement::Select(select) => {Ok(())}
+        Statement::Insert(insert) =>{Ok(())}
+        Statement::CreateTable(createTable) =>{Ok(())}
+        Statement::Update(update) => {Ok(())}
+        Statement::Delete(delete) => {Ok(())}
         _ => {Err(ExecuteError::StatementNotFound)}
     }
 }
@@ -39,12 +42,6 @@ fn execute_insert(row: &Row, table: &mut Table) -> Result<(), ExecuteError> {
         .map_err(|_| ExecuteError::InvalidRow)?;
     let schema = table.schema.clone();
     let mut cursor = Cursor::table_start(table);
-
-    while !cursor.end_of_table {
-        let row = Row::from_bytes(cursor.value(), &schema).map_err(|_| ExecuteError::InvalidRow)?;
-        println!("{row}");
-        cursor.advance();
-    }
 
     let root_page_num = cursor.table.root_page_num;
     let page_num = cursor.page_num;
