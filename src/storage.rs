@@ -39,25 +39,6 @@ pub struct Row {
 }
 
 impl Row {
-    // pub fn new(id: u32, username_str: &str, email_str: &str) -> Self {
-    //     let mut username = [0u8; COLUMN_USERNAME_SIZE];
-    //     let mut email = [0u8; COLUMN_EMAIL_SIZE];
-    //
-    //     let u_bytes = username_str.as_bytes();
-    //     let u_len = u_bytes.len().min(COLUMN_USERNAME_SIZE);
-    //     username[..u_len].copy_from_slice(&u_bytes[..u_len]);
-    //
-    //     let e_bytes = email_str.as_bytes();
-    //     let e_len = e_bytes.len().min(COLUMN_EMAIL_SIZE);
-    //     email[..e_len].copy_from_slice(&e_bytes[..e_len]);
-    //
-    //     Self {
-    //         id,
-    //         username,
-    //         email,
-    //     }
-    // }
-
     pub fn for_example_table(id: u32, username: &str, email: &str) -> Self {
         Self {
             values: vec![
@@ -280,10 +261,8 @@ impl Column {
     fn encoded_width(&self) -> Result<usize, RowError> {
         match self.value_type {
             ValueType::Integer => Ok(4),
-            ValueType::Text => self.max_length.ok_or_else(|| {
-                RowError::TypeMismatch {
-                    column: self.name.clone(),
-                }
+            ValueType::Text => self.max_length.ok_or_else(|| RowError::TypeMismatch {
+                column: self.name.clone(),
             }),
             ValueType::Null => Err(RowError::UnsupportedNull {
                 column: self.name.clone(),
@@ -357,9 +336,9 @@ impl TableSchema {
         Ok(Row { values })
     }
     fn record_size(&self) -> Result<usize, RowError> {
-        self.columns.iter().try_fold(0usize, |total, column| {
-            Ok(total + column.encoded_width()?)
-        })
+        self.columns
+            .iter()
+            .try_fold(0usize, |total, column| Ok(total + column.encoded_width()?))
     }
 
     fn validate(&self, row: &Row) -> bool {

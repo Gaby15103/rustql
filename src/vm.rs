@@ -6,12 +6,14 @@ pub enum ExecuteError {
     TableFull,
     DuplicateKey,
     InvalidRow,
+    StatementNotFound
 }
 
 pub fn execute_statement(statement: &Statement, table: &mut Table) -> Result<(), ExecuteError> {
     match statement {
         Statement::Insert(row) => execute_insert(row, table),
         Statement::Select => execute_select(table),
+        _ => {Err(ExecuteError::StatementNotFound)}
     }
 }
 
@@ -39,8 +41,7 @@ fn execute_insert(row: &Row, table: &mut Table) -> Result<(), ExecuteError> {
     let mut cursor = Cursor::table_start(table);
 
     while !cursor.end_of_table {
-        let row = Row::from_bytes(cursor.value(), &schema)
-            .map_err(|_| ExecuteError::InvalidRow)?;
+        let row = Row::from_bytes(cursor.value(), &schema).map_err(|_| ExecuteError::InvalidRow)?;
         println!("{row}");
         cursor.advance();
     }
@@ -82,8 +83,7 @@ fn execute_select(table: &mut Table) -> Result<(), ExecuteError> {
     let mut cursor = Cursor::table_start(table);
 
     while !cursor.end_of_table {
-        let row = Row::from_bytes(cursor.value(), &schema)
-            .map_err(|_| ExecuteError::InvalidRow)?;
+        let row = Row::from_bytes(cursor.value(), &schema).map_err(|_| ExecuteError::InvalidRow)?;
 
         println!("{row}");
         cursor.advance();

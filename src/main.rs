@@ -4,6 +4,7 @@ mod meta;
 mod repl;
 mod storage;
 mod vm;
+mod sql_parser;
 
 use compiler::{PrepareError, prepare_statement};
 use meta::{MetaAction, MetaError, do_meta_command};
@@ -61,6 +62,7 @@ fn main() {
             Err(ExecuteError::TableFull) => println!("Error: Table full."),
             Err(ExecuteError::DuplicateKey) => println!("Error: Duplicate key."),
             Err(ExecuteError::InvalidRow) => println!("Error: Invalid row."),
+            Err(ExecuteError::StatementNotFound) => print!("Error: Invalid Statement."),
         }
     }
 }

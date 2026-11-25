@@ -1,8 +1,9 @@
-use crate::storage::{Row, TableSchema, Value};
+use crate::storage::{Row, Table, TableSchema, Value};
 
 #[derive(Debug)]
 pub enum Statement {
     Insert(Row),
+    Create,
     Select,
 }
 
@@ -12,10 +13,7 @@ pub enum PrepareError {
     InvalidRow(String),
 }
 
-pub fn prepare_statement(
-    input: &str,
-    schema: &TableSchema,
-) -> Result<Statement, PrepareError> {
+pub fn prepare_statement(input: &str, schema: &TableSchema) -> Result<Statement, PrepareError> {
     if input.starts_with("insert") {
         let mut parts = input.split_whitespace();
         let _keyword = parts.next();
@@ -37,6 +35,15 @@ pub fn prepare_statement(
             .map_err(|error| PrepareError::InvalidRow(format!("{error:?}")))?;
 
         return Ok(Statement::Insert(row));
+    }
+    if input.starts_with("create"){
+        let mut parts = input.split_whitespace();
+        let _keyword = parts.next();
+        let creating_type = parts.next().ok_or(PrepareError::SyntaxError)?;
+        if creating_type == "table"{
+            
+            return Ok(Statement::Create)
+        }
     }
 
     if input == "select" {
