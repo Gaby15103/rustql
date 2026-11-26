@@ -94,8 +94,8 @@ impl Pager {
     }
 
     pub fn get_unused_page_num(&mut self) -> usize {
-        let page_num = self.num_pages;
-        self.num_pages += 1;
+        let page_num = if self.num_pages == 0 { 1 } else { self.num_pages };
+        self.num_pages = page_num + 1;
         page_num
     }
 

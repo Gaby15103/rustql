@@ -78,15 +78,20 @@ fn execute_create_table(
         primary_key_index,
     };
 
-    database.create_table(schema).map_err(|error| {
-        if statement.if_not_exists
-            && error.starts_with("table ")
-            && error.ends_with("already exists")
-        {
-            return ExecuteError::InvalidRow;
+    match database.create_table(schema) {
+        Ok(()) => Ok(()),
+        Err(error) if error.starts_with("Table ") && error.ends_with("already exists") => {
+            if statement.if_not_exists {
+                Ok(())
+            } else {
+                Err(ExecuteError::TableAlreadyExists)
+            }
         }
-        ExecuteError::TableAlreadyExists
-    })
+        Err(error) => {
+            eprintln!("Could not create table: {error}");
+            Err(ExecuteError::InvalidRow)
+        }
+    }
 }
 
 fn execute_insert(statement: &InsertStmt, mut database: &mut Database) -> Result<(), ExecuteError> {

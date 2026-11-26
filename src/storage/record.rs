@@ -42,7 +42,7 @@ impl Row {
         }
 
         let expected_size = schema.record_size()?;
-        if destination.len() != expected_size || expected_size != ROW_SIZE {
+        if destination.len() != ROW_SIZE || expected_size > ROW_SIZE {
             return Err(RowError::InvalidRecordSize {
                 expected: ROW_SIZE,
                 actual: expected_size,
@@ -84,7 +84,7 @@ impl Row {
 
     fn deserialize(schema: &TableSchema, source: &[u8]) -> Result<Self, RowError> {
         let expected_size = schema.record_size()?;
-        if source.len() != expected_size || expected_size != ROW_SIZE {
+        if source.len() != ROW_SIZE  || expected_size > ROW_SIZE {
             return Err(RowError::InvalidRecordSize {
                 expected: ROW_SIZE,
                 actual: source.len(),

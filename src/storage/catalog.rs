@@ -10,6 +10,7 @@ pub struct Catalog {
     tables: HashMap<String, TableEntry>,
 }
 
+
 impl Catalog {
     pub fn new() -> Self {
         Self {
@@ -29,6 +30,16 @@ impl Catalog {
         self.tables.insert(name, entry);
         Ok(())
     }
+    pub fn names(&self) -> Vec<String>{
+        let mut names: Vec<String> = self.tables.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = (&String, &TableEntry)> {
+        self.tables.iter()
+    }
+
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

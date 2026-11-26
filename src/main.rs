@@ -42,6 +42,14 @@ fn main() {
                     println!("Unrecognized command '{}'", input_buffer);
                     continue;
                 }
+                Err(MetaError::TableNotFound(name)) => {
+                    println!("Error: table '{name}' not found");
+                    continue;
+                }
+                Err(MetaError::InvalidArguments(message)) => {
+                    println!("Error: {message}");
+                    continue;
+                }
             }
         }
 

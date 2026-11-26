@@ -276,3 +276,22 @@ fn stress_test_1400_rows_out_of_order_and_persisted() {
     assert_eq!(select_output[total_rows as usize], "Executed.");
     assert_eq!(select_output[(total_rows + 1) as usize], "db > ");
 }
+#[test]
+fn persists_table_catalog_after_close() {
+    let db = TestDb::new("catalog_persistence");
+
+    let first = db.run(&[
+        "CREATE TABLE users (id INT PRIMARY KEY, name TEXT)",
+        ".exit",
+    ]);
+
+    assert_eq!(first, vec!["db > Executed.", "db > "]);
+
+    let second = db.run(&[
+        ".tables",
+        ".schema users",
+        ".exit",
+    ]);
+
+    assert!(second.contains(&"db > users".to_string()));
+}
