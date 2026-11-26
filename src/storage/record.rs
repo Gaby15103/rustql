@@ -1,12 +1,13 @@
 use std::fmt;
 use crate::storage::{RowError, TableSchema, ValueType};
 
-pub const ROW_SIZE: usize = 4 + 32 + 255;
+pub const ROW_SIZE: usize = 4 + 255 + 255;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     Integer(i64),
     Text(String),
+    Bool(bool),
     Null,
 }
 
@@ -16,16 +17,6 @@ pub struct Row {
 }
 
 impl Row {
-    pub fn for_example_table(id: u32, username: &str, email: &str) -> Self {
-        Self {
-            values: vec![
-                Value::Integer(id as i64),
-                Value::Text(username.to_owned()),
-                Value::Text(email.to_owned()),
-            ],
-        }
-    }
-
     pub fn to_bytes(&self, schema: &TableSchema) -> Result<Vec<u8>, RowError> {
         let mut bytes = vec![0; ROW_SIZE];
         self.serialize(schema, &mut bytes)?;
@@ -75,11 +66,14 @@ impl Row {
                 Value::Text(text) => {
                     copy_fixed_text(&mut destination[offset..offset + width], text);
                 }
+                Value::Bool(value) => {
+                    destination[offset] = u8::from(*value);
+                },
                 Value::Null => {
                     return Err(RowError::UnsupportedNull {
                         column: column.name.clone(),
                     });
-                }
+                },
             }
 
             offset += width;
@@ -115,11 +109,20 @@ impl Row {
                     Value::Integer(u32::from_ne_bytes(int_bytes) as i64)
                 }
                 ValueType::Text => Value::Text(read_fixed_text(field)),
+                ValueType::Bool => match field[0] {
+                    0 => Value::Bool(false),
+                    1 => Value::Bool(true),
+                    _ => {
+                        return Err(RowError::TypeMismatch {
+                            column: column.name.clone(),
+                        });
+                    }
+                },
                 ValueType::Null => {
                     return Err(RowError::UnsupportedNull {
                         column: column.name.clone(),
                     });
-                }
+                },
             };
 
             values.push(value);
@@ -139,6 +142,7 @@ impl fmt::Display for Row {
             match value {
                 Value::Integer(value) => write!(f, "{value}")?,
                 Value::Text(value) => f.write_str(value)?,
+                Value::Bool(value) => write!(f, "{value}")?,
                 Value::Null => f.write_str("NULL")?,
             }
         }

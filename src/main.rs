@@ -82,7 +82,11 @@ fn main() {
             Err(ExecuteError::TableFull) => println!("Error: Table full."),
             Err(ExecuteError::DuplicateKey) => println!("Error: Duplicate key."),
             Err(ExecuteError::InvalidRow) => println!("Error: Invalid row."),
-            Err(ExecuteError::StatementNotFound) => print!("Error: Invalid Statement."),
+            Err(ExecuteError::UnsupportedStatement) => println!("Error: Invalid Statement."),
+            Err(ExecuteError::TableNotFound) => println!("Error: Table not found."),
+            Err(ExecuteError::ColumnNotFound) => println!("Error: Column not found."),
+            Err(ExecuteError::TableAlreadyExists) => println!("Error: Table already exists."),
+            Err(ExecuteError::UnsupportedExpression) => println!("Error: unsupported expression."),
         }
     }
 }

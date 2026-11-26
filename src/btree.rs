@@ -132,33 +132,61 @@ fn update_ancestor_max_keys(
 }
 
 pub struct Cursor<'a> {
-    pub table: &'a mut Table,
+    pub pager: &'a mut Pager,
     pub page_num: usize,
     pub cell_num: usize,
     pub end_of_table: bool,
 }
 
 impl<'a> Cursor<'a> {
-    pub fn table_start(table: &'a mut Table) -> Self {
-        let mut cursor = table.find(0);
+    pub fn find(pager: &'a mut Pager, root_page_num: usize, key: u32) -> Self{
+        let mut page_num = root_page_num;
 
-        let page = cursor.table.pager.get_page(cursor.page_num);
-        let num_cells = LeafNode::new(page.as_mut()).num_cells() as usize;
-        cursor.end_of_table = num_cells == 0;
+        loop {
+            let page = pager.get_page(page_num);
+
+            match get_node_type(page.as_ref()) {
+                NodeType::Internal => {
+                    let internal = InternalNode::new(page.as_mut());
+                    let child_index = internal.find_child(key);
+                    page_num = internal.child(child_index) as usize;
+                }
+                NodeType::Leaf => {
+                    let leaf = LeafNode::new(page.as_mut());
+                    let num_cells = leaf.num_cells() as usize;
+                    let cell_num = leaf.find_cell(key);
+
+                    return Self {
+                        pager,
+                        page_num,
+                        cell_num,
+                        end_of_table: cell_num >= num_cells,
+                    };
+                }
+            }
+        }
+    }
+
+    pub fn table_start(pager: &'a mut Pager, root_page_num: usize) -> Self {
+        let mut cursor = Self::find(pager, root_page_num, 0);
+
+        let page = cursor.pager.get_page(cursor.page_num);
+        let leaf = LeafNode::new(page.as_mut());
+        cursor.end_of_table = leaf.num_cells() == 0;
 
         cursor
     }
 
     pub fn value(&mut self) -> &mut [u8] {
-        let page = self.table.pager.get_page(self.page_num);
-        let offset = crate::btree::LEAF_NODE_HEADER_SIZE
-            + self.cell_num * crate::btree::LEAF_NODE_CELL_SIZE
-            + crate::btree::LEAF_NODE_VALUE_OFFSET;
-        &mut page[offset..offset + crate::btree::LEAF_NODE_VALUE_SIZE]
+        let page = self.pager.get_page(self.page_num);
+        let offset = LEAF_NODE_HEADER_SIZE
+            + self.cell_num * LEAF_NODE_CELL_SIZE
+            + LEAF_NODE_VALUE_OFFSET;
+        &mut page[offset..offset + LEAF_NODE_VALUE_SIZE]
     }
 
     pub fn advance(&mut self) {
-        let page = self.table.pager.get_page(self.page_num);
+        let page = self.pager.get_page(self.page_num);
         let leaf = LeafNode::new(page.as_mut());
         let num_cells = leaf.num_cells() as usize;
         let next_leaf = leaf.next_leaf() as usize;

@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 use crate::storage::TableSchema;
 
+pub enum CatalogError {
+    TableAlreadyExists(String),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Catalog {
     tables: HashMap<String, TableEntry>,

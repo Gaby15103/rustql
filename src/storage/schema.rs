@@ -14,6 +14,7 @@ pub enum RowError {
 pub enum ValueType {
     Integer,
     Text,
+    Bool,
     Null,
 }
 
@@ -31,6 +32,7 @@ impl Column {
             ValueType::Text => self.max_length.ok_or_else(|| RowError::TypeMismatch {
                 column: self.name.clone(),
             }),
+            ValueType::Bool => Ok(1),
             ValueType::Null => Err(RowError::UnsupportedNull {
                 column: self.name.clone(),
             }),
@@ -43,30 +45,6 @@ pub struct TableSchema {
     pub name: String,
     pub columns: Vec<Column>,
     pub primary_key_index: Option<usize>,
-}
-
-pub fn example_table_schema() -> TableSchema {
-    TableSchema {
-        name: "people".to_owned(),
-        columns: vec![
-            Column {
-                name: "id".to_owned(),
-                value_type: ValueType::Integer,
-                max_length: None,
-            },
-            Column {
-                name: "username".to_owned(),
-                value_type: ValueType::Text,
-                max_length: Some(32),
-            },
-            Column {
-                name: "email".to_owned(),
-                value_type: ValueType::Text,
-                max_length: Some(255),
-            },
-        ],
-        primary_key_index: Some(0),
-    }
 }
 
 impl TableSchema {
@@ -91,6 +69,7 @@ impl TableSchema {
                         }
                     }
                 }
+                (ValueType::Bool, Value::Bool(_)) => {}
                 (ValueType::Null, Value::Null) => {}
                 _ => {
                     return Err(RowError::TypeMismatch {
