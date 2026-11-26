@@ -1,5 +1,6 @@
 use crate::btree::{LeafNode, print_constants};
 use std::process;
+use crate::storage::Database;
 
 pub enum MetaAction {
     Continue,
@@ -10,10 +11,10 @@ pub enum MetaError {
     UnrecognizedCommand,
 }
 
-pub fn do_meta_command(input: &str, table: &mut Table) -> Result<MetaAction, MetaError> {
+pub fn do_meta_command(input: &str, db: &mut Database) -> Result<MetaAction, MetaError> {
     match input {
         ".exit" => {
-            table.db_close();
+            db.db_close();
             Ok(MetaAction::Exit)
         }
         ".constants" => {
@@ -23,7 +24,7 @@ pub fn do_meta_command(input: &str, table: &mut Table) -> Result<MetaAction, Met
         }
         ".btree" => {
             println!("Tree:");
-            crate::btree::print_tree(&mut table.pager, 0, 0);
+            crate::btree::print_tree(&mut db.pager, 0, 0);
             Ok(MetaAction::Continue)
         }
         _ => Err(MetaError::UnrecognizedCommand),

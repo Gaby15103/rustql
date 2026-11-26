@@ -1,3 +1,4 @@
+use crate::storage::{Row, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RowError {
@@ -24,7 +25,7 @@ pub struct Column {
 }
 
 impl Column {
-    fn encoded_width(&self) -> Result<usize, RowError> {
+    pub(crate) fn encoded_width(&self) -> Result<usize, RowError> {
         match self.value_type {
             ValueType::Integer => Ok(4),
             ValueType::Text => self.max_length.ok_or_else(|| RowError::TypeMismatch {
@@ -101,13 +102,13 @@ impl TableSchema {
 
         Ok(Row { values })
     }
-    fn record_size(&self) -> Result<usize, RowError> {
+    pub(crate) fn record_size(&self) -> Result<usize, RowError> {
         self.columns
             .iter()
             .try_fold(0usize, |total, column| Ok(total + column.encoded_width()?))
     }
 
-    fn validate(&self, row: &Row) -> bool {
+    pub fn validate(&self, row: &Row) -> bool {
         self.make_row(row.values.clone()).is_ok()
     }
 }

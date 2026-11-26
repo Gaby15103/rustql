@@ -1,6 +1,6 @@
 use crate::btree::{LEAF_NODE_MAX_CELLS, LeafNode, leaf_node_split_and_insert};
 use crate::sql_parser::{CreateTableStmt, DeleteStmt, InsertStmt, SelectStmt, Statement, UpdateStmt};
-use crate::storage::{Cursor, Row, Table, Value};
+use crate::storage::{Database, Row, Value};
 
 pub enum ExecuteError {
     TableFull,
@@ -9,7 +9,7 @@ pub enum ExecuteError {
     StatementNotFound
 }
 
-pub fn execute_statement(statement: &Statement, table: &mut Table) -> Result<(), ExecuteError> {
+pub fn execute_statement(statement: &Statement, db: &mut Database) -> Result<(), ExecuteError> {
     match statement {
         Statement::Select(select) => {Ok(())}
         Statement::Insert(insert) =>{Ok(())}
@@ -20,28 +20,28 @@ pub fn execute_statement(statement: &Statement, table: &mut Table) -> Result<(),
     }
 }
 
-fn primary_key(table: &Table, row: &Row) -> Option<u32> {
-    let index = table.schema.primary_key_index?;
+fn primary_key(db: &Database, row: &Row) -> Option<u32> {
+    let index = db.schema.primary_key_index?;
     match row.values.get(index)? {
         Value::Integer(id) => u32::try_from(*id).ok(),
         _ => None,
     }
 }
 
-fn execute_insert(row: &Row, table: &mut Table) -> Result<(), ExecuteError> {
-    if !table.validate_row(row) {
+fn execute_insert(row: &Row, db: &mut Database) -> Result<(), ExecuteError> {
+    if !db.validate_row(row) {
         return Err(ExecuteError::InvalidRow);
     }
-    let key_to_insert = match primary_key(table, row) {
+    let key_to_insert = match primary_key(db, row) {
         Some(key) => key,
         None => return Err(ExecuteError::InvalidRow),
     };
 
     let row_bytes = row
-        .to_bytes(&table.schema)
+        .to_bytes(&db.schema)
         .map_err(|_| ExecuteError::InvalidRow)?;
-    let schema = table.schema.clone();
-    let mut cursor = Cursor::table_start(table);
+    let schema = db.schema.clone();
+    let mut cursor = Cursor::table_start(db);
 
     let root_page_num = cursor.table.root_page_num;
     let page_num = cursor.page_num;
@@ -74,10 +74,10 @@ fn execute_insert(row: &Row, table: &mut Table) -> Result<(), ExecuteError> {
     Ok(())
 }
 
-fn execute_select(table: &mut Table) -> Result<(), ExecuteError> {
+fn execute_select(db: &mut Database) -> Result<(), ExecuteError> {
     // Clone before borrowing the table through the cursor.
-    let schema = table.schema.clone();
-    let mut cursor = Cursor::table_start(table);
+    let schema = db.schema.clone();
+    let mut cursor = Cursor::table_start(db);
 
     while !cursor.end_of_table {
         let row = Row::from_bytes(cursor.value(), &schema).map_err(|_| ExecuteError::InvalidRow)?;

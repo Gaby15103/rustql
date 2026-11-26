@@ -10,19 +10,19 @@ use compiler::{PrepareError, prepare_statement};
 use meta::{MetaAction, MetaError, do_meta_command};
 use repl::{print_prompt, read_input};
 use std::{env, process};
-use storage::Table;
 use vm::{ExecuteError, execute_statement};
 
 use crate::sql_parser::{
     Lexer, Parser,
 };
+use crate::storage::Database;
 
 fn main() {
     let filename = env::args().nth(1).unwrap_or_else(|| {
         println!("Must supply a database filename.");
         process::exit(1);
     });
-    let mut table = Table::db_open(&filename);
+    let mut db = Database::open(&filename);
 
     let mut input_buffer = String::new();
 
@@ -35,7 +35,7 @@ fn main() {
         }
 
         if input_buffer.starts_with('.') {
-            match do_meta_command(&input_buffer, &mut table) {
+            match do_meta_command(&input_buffer, &mut db) {
                 Ok(MetaAction::Continue) => continue,
                 Ok(MetaAction::Exit) => break,
                 Err(MetaError::UnrecognizedCommand) => {
@@ -77,7 +77,7 @@ fn main() {
             }
         };
 
-        match execute_statement(&statement, &mut table) {
+        match execute_statement(&statement, &mut db) {
             Ok(()) => println!("Executed."),
             Err(ExecuteError::TableFull) => println!("Error: Table full."),
             Err(ExecuteError::DuplicateKey) => println!("Error: Duplicate key."),
