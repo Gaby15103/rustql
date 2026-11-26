@@ -1,3 +1,4 @@
+use crate::sql_parser::OrderBy;
 use crate::sql_parser::sql_token::{
     Assignment, BinaryOperator, ColumnDef, CreateTableStmt, DataType, DeleteStmt, Expr, InsertStmt,
     Keyword, LiteralValue, SelectItem, SelectStmt, Statement, Token, UnaryOperator, UpdateStmt,
@@ -137,6 +138,22 @@ impl Parser {
             None
         };
 
+        let order_by = if self.consume_keyword(Keyword::Order) {
+            self.expect_keyword(Keyword::By)?;
+            let column = self.expect_identifier()?;
+
+            let descending = if self.consume_keyword(Keyword::Desc) {
+                true
+            } else {
+                self.consume_keyword(Keyword::Asc);
+                false
+            };
+
+            Some(OrderBy { column, descending })
+        } else {
+            None
+        };
+
         let limit = if self.consume_keyword(Keyword::Limit) {
             match self.advance() {
                 Token::Number(n) if n >= 0 => Some(n as usize),
@@ -151,6 +168,7 @@ impl Parser {
             from,
             where_clause,
             limit,
+            order_by,
         })
     }
 

@@ -1,6 +1,8 @@
+use std::cmp::Ordering;
+use std::collections::HashSet;
 use crate::btree::Cursor;
 use crate::btree::{LEAF_NODE_MAX_CELLS, LeafNode, leaf_node_split_and_insert};
-use crate::sql_parser::DataType;
+use crate::sql_parser::{BinaryOperator, DataType, UnaryOperator};
 use crate::sql_parser::Expr;
 use crate::sql_parser::LiteralValue;
 use crate::sql_parser::SelectItem;
@@ -117,20 +119,141 @@ fn execute_select(statement: &SelectStmt, database: &mut Database) -> Result<(),
         .ok_or(ExecuteError::TableNotFound)?
         .clone();
 
-    let projection = validate_select(&statement, &entry.schema)?;
-    select_rows(
-        database,
-        &entry,
-        &projection,
-        statement.limit,
-    )?;
+    let projection = validate_select(statement, &entry.schema)?;
+
+    if let Some(order_by) = &statement.order_by {
+        column_index(&entry.schema, &order_by.column)?;
+    }
+
+    let mut rows = read_table_rows(database, &entry)?;
+
+    if let Some(where_clause) = &statement.where_clause {
+        let mut matching_rows = Vec::new();
+        for row in rows {
+            if evaluate_condition(where_clause, &row, &entry.schema)? {
+                matching_rows.push(row);
+            }
+        }
+        rows = matching_rows;
+    }
+
+    if let Some(order_by) = &statement.order_by {
+        let index = column_index(&entry.schema, &order_by.column)?;
+        let descending = order_by.descending;
+
+        rows.sort_by(|left, right| {
+            let ordering = compare_for_order(&left.values[index], &right.values[index]);
+            if descending {
+                ordering.reverse()
+            } else {
+                ordering
+            }
+        });
+    }
+
+    if let Some(limit) = statement.limit {
+        rows.truncate(limit);
+    }
+
+    for row in rows {
+        let projected = Row {
+            values: projection
+                .iter()
+                .map(|&index| row.values[index].clone())
+                .collect(),
+        };
+        println!("{projected}");
+    }
+
     Ok(())
 }
 fn execute_update(statement: &UpdateStmt, database: &mut Database) -> Result<(), ExecuteError> {
-    Ok(())
+    let entry = database
+        .table(&statement.table)
+        .ok_or(ExecuteError::TableNotFound)?
+        .clone();
+
+    if statement.assignments.is_empty() {
+        return Err(ExecuteError::InvalidRow);
+    }
+
+    if let Some(where_clause) = &statement.where_clause {
+        validate_select_expr(where_clause, &entry.schema)?;
+    }
+
+    let mut assignment_indices = Vec::with_capacity(statement.assignments.len());
+    let mut seen_columns = HashSet::new();
+
+    for assignment in &statement.assignments {
+        let index = column_index(&entry.schema, &assignment.column)?;
+        if !seen_columns.insert(index) {
+            return Err(ExecuteError::InvalidRow);
+        }
+        assignment_indices.push(index);
+
+        // Check column references before changing any rows.
+        validate_select_expr(&assignment.value, &entry.schema)?;
+    }
+
+    let mut rows = read_table_rows(database, &entry)?;
+
+    for row in &mut rows {
+        let matches = match &statement.where_clause {
+            Some(condition) => matches!(
+                evaluate_condition(condition, row, &entry.schema)?,
+                true
+            ),
+            None => true,
+        };
+
+        if !matches {
+            continue;
+        }
+
+        // Evaluate each right-hand side against the original row, as SQL UPDATE
+        // normally does, then apply all resulting values together.
+        let updated_values = statement
+            .assignments
+            .iter()
+            .map(|assignment| evaluate_value(&assignment.value, row, &entry.schema))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for (&index, value) in assignment_indices.iter().zip(updated_values) {
+            row.values[index] = value;
+        }
+
+        *row = entry
+            .schema
+            .make_row(row.values.clone())
+            .map_err(|_| ExecuteError::InvalidRow)?;
+    }
+
+    rewrite_table(database, &entry, &rows)
 }
 fn execute_delete(statement: &DeleteStmt, database: &mut Database) -> Result<(), ExecuteError> {
-    Ok(())
+    let entry = database
+        .table(&statement.table)
+        .ok_or(ExecuteError::TableNotFound)?
+        .clone();
+
+    if let Some(where_clause) = &statement.where_clause {
+        validate_select_expr(where_clause, &entry.schema)?;
+    }
+
+    let mut rows_to_keep = Vec::new();
+
+    for row in read_table_rows(database, &entry)? {
+        let should_delete = match &statement.where_clause {
+            Some(condition) => evaluate_condition(condition, &row, &entry.schema)?,
+            None => true,
+        };
+
+        if !should_delete {
+            rows_to_keep.push(row);
+        }
+    }
+
+    rewrite_table(database, &entry, &rows_to_keep)
 }
 
 // --- non execute command ---
@@ -322,6 +445,225 @@ fn select_rows(
 
         printed += 1;
         cursor.advance();
+    }
+
+    Ok(())
+}
+
+fn column_index(schema: &TableSchema, name: &str) -> Result<usize, ExecuteError> {
+    schema
+        .columns
+        .iter()
+        .position(|column| column.name.eq_ignore_ascii_case(name))
+        .ok_or(ExecuteError::ColumnNotFound)
+}
+
+fn read_table_rows(
+    database: &mut Database,
+    entry: &TableEntry,
+) -> Result<Vec<Row>, ExecuteError> {
+    let mut rows = Vec::new();
+    let mut cursor = Cursor::table_start(&mut database.pager, entry.root_page_num);
+
+    while !cursor.end_of_table {
+        let row = Row::from_bytes(cursor.value(), &entry.schema)
+            .map_err(|_| ExecuteError::InvalidRow)?;
+        rows.push(row);
+        cursor.advance();
+    }
+
+    Ok(rows)
+}
+fn match_where(
+    expression: &Expr,
+    row: &Row,
+    schema: &TableSchema,
+) -> Result<bool, ExecuteError> {
+    evaluate_condition(expression, row, schema)
+}
+
+fn evaluate_condition(
+    expression: &Expr,
+    row: &Row,
+    schema: &TableSchema,
+) -> Result<bool, ExecuteError> {
+    match evaluate_value(expression, row, schema)? {
+        Value::Bool(value) => Ok(value),
+        // NULL and non-boolean values do not match a WHERE condition.
+        Value::Null => Ok(false),
+        _ => Err(ExecuteError::UnsupportedExpression),
+    }
+}
+
+fn evaluate_value(
+    expression: &Expr,
+    row: &Row,
+    schema: &TableSchema,
+) -> Result<Value, ExecuteError> {
+    match expression {
+        Expr::Literal(LiteralValue::Integer(value)) => Ok(Value::Integer(*value)),
+        Expr::Literal(LiteralValue::String(value)) => Ok(Value::Text(value.clone())),
+        Expr::Literal(LiteralValue::Boolean(value)) => Ok(Value::Bool(*value)),
+        Expr::Literal(LiteralValue::Null) => Ok(Value::Null),
+
+        Expr::Identifier(name) => {
+            let index = column_index(schema, name)?;
+            Ok(row.values[index].clone())
+        }
+
+        Expr::UnaryOp { op, expr } => {
+            let value = evaluate_value(expr, row, schema)?;
+            match (op, value) {
+                (UnaryOperator::Not, Value::Bool(value)) => Ok(Value::Bool(!value)),
+                (UnaryOperator::Minus, Value::Integer(value)) => value
+                    .checked_neg()
+                    .map(Value::Integer)
+                    .ok_or(ExecuteError::UnsupportedExpression),
+                _ => Err(ExecuteError::UnsupportedExpression),
+            }
+        }
+
+        Expr::BinaryOp { left, op, right } => {
+            let left = evaluate_value(left, row, schema)?;
+            let right = evaluate_value(right, row, schema)?;
+
+            match op {
+                BinaryOperator::And => match (left, right) {
+                    (Value::Bool(left), Value::Bool(right)) => Ok(Value::Bool(left && right)),
+                    _ => Err(ExecuteError::UnsupportedExpression),
+                },
+                BinaryOperator::Or => match (left, right) {
+                    (Value::Bool(left), Value::Bool(right)) => Ok(Value::Bool(left || right)),
+                    _ => Err(ExecuteError::UnsupportedExpression),
+                },
+
+                BinaryOperator::Eq => {
+                    if left == Value::Null || right == Value::Null {
+                        Ok(Value::Bool(false))
+                    } else {
+                        Ok(Value::Bool(left == right))
+                    }
+                }
+                BinaryOperator::NotEq => {
+                    if left == Value::Null || right == Value::Null {
+                        Ok(Value::Bool(false))
+                    } else {
+                        Ok(Value::Bool(left != right))
+                    }
+                }
+
+                BinaryOperator::Lt
+                | BinaryOperator::Gt
+                | BinaryOperator::LtEq
+                | BinaryOperator::GtEq => {
+                    let Some(ordering) = compare_values(&left, &right)? else {
+                        return Ok(Value::Bool(false));
+                    };
+
+                    let result = match op {
+                        BinaryOperator::Lt => ordering == Ordering::Less,
+                        BinaryOperator::Gt => ordering == Ordering::Greater,
+                        BinaryOperator::LtEq => ordering != Ordering::Greater,
+                        BinaryOperator::GtEq => ordering != Ordering::Less,
+                        _ => unreachable!(),
+                    };
+
+                    Ok(Value::Bool(result))
+                }
+
+                BinaryOperator::Plus
+                | BinaryOperator::Minus
+                | BinaryOperator::Star
+                | BinaryOperator::Slash => {
+                    let (Value::Integer(left), Value::Integer(right)) = (left, right) else {
+                        return Err(ExecuteError::UnsupportedExpression);
+                    };
+
+                    let result = match op {
+                        BinaryOperator::Plus => left.checked_add(right),
+                        BinaryOperator::Minus => left.checked_sub(right),
+                        BinaryOperator::Star => left.checked_mul(right),
+                        BinaryOperator::Slash if right != 0 => left.checked_div(right),
+                        BinaryOperator::Slash => None,
+                        _ => unreachable!(),
+                    }
+                        .ok_or(ExecuteError::UnsupportedExpression)?;
+
+                    Ok(Value::Integer(result))
+                }
+            }
+        }
+
+        Expr::FunctionCall { .. } => Err(ExecuteError::UnsupportedExpression),
+    }
+}
+
+fn compare_values(
+    left: &Value,
+    right: &Value,
+) -> Result<Option<Ordering>, ExecuteError> {
+    match (left, right) {
+        (Value::Null, _) | (_, Value::Null) => Ok(None),
+        (Value::Integer(left), Value::Integer(right)) => Ok(Some(left.cmp(right))),
+        (Value::Text(left), Value::Text(right)) => Ok(Some(left.cmp(right))),
+        (Value::Bool(left), Value::Bool(right)) => Ok(Some(left.cmp(right))),
+        _ => Err(ExecuteError::UnsupportedExpression),
+    }
+}
+
+fn compare_for_order(left: &Value, right: &Value) -> Ordering {
+    match compare_values(left, right) {
+        Ok(Some(ordering)) => ordering,
+        // Put NULL values after non-NULL values for ascending order.
+        Ok(None) => match (left, right) {
+            (Value::Null, Value::Null) => Ordering::Equal,
+            (Value::Null, _) => Ordering::Greater,
+            (_, Value::Null) => Ordering::Less,
+            _ => Ordering::Equal,
+        },
+        Err(_) => Ordering::Equal,
+    }
+}
+
+fn rewrite_table(
+    database: &mut Database,
+    entry: &TableEntry,
+    rows: &[Row],
+) -> Result<(), ExecuteError> {
+    let primary_key_index = entry
+        .schema
+        .primary_key_index
+        .ok_or(ExecuteError::InvalidRow)?;
+
+    let mut seen_keys = HashSet::new();
+
+    for row in rows {
+        if !entry.schema.validate(row) {
+            return Err(ExecuteError::InvalidRow);
+        }
+
+        let key = match row.values.get(primary_key_index) {
+            Some(Value::Integer(value)) => {
+                u32::try_from(*value).map_err(|_| ExecuteError::InvalidRow)?
+            }
+            _ => return Err(ExecuteError::InvalidRow),
+        };
+
+        if !seen_keys.insert(key) {
+            return Err(ExecuteError::DuplicateKey);
+        }
+    }
+
+    // Reset the existing root page. Old child pages become unreachable; rows
+    // are reinserted using the normal B-tree insertion path.
+    {
+        let page = database.pager.get_page(entry.root_page_num);
+        LeafNode::new(page.as_mut()).initialize();
+        crate::btree::set_node_root(page.as_mut(), true);
+    }
+
+    for row in rows {
+        insert_row(database, entry, row)?;
     }
 
     Ok(())

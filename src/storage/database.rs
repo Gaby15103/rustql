@@ -74,14 +74,11 @@ impl Database {
             ));
         }
 
-        let root_page_num = if self.pager.num_pages == 0 {
-            1
-        } else {
-            self.pager.num_pages
-        };
-
-        if root_page_num == 0 {
-            unreachable!("page 0 is reserved for the catalog");
+        let root_page_num = self.pager.get_unused_page_num();
+        {
+            let page = self.pager.get_page(root_page_num);
+            LeafNode::new(page.as_mut()).initialize();
+            set_node_root(page.as_mut(), true);
         }
 
         let schema = TableSchema {

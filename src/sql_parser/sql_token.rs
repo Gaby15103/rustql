@@ -72,6 +72,10 @@ pub enum Keyword {
     True,
     False,
     Null,
+    Order,
+    By,
+    Asc,
+    Desc,
 }
 
 #[derive(Debug, PartialEq)]
@@ -89,6 +93,7 @@ pub struct SelectStmt {
     pub from: String,
     pub where_clause: Option<Expr>,
     pub limit: Option<usize>,
+    pub order_by: Option<OrderBy>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -194,4 +199,10 @@ pub enum BinaryOperator {
 pub enum UnaryOperator {
     Not,   // NOT
     Minus, // -
+}
+
+#[derive(Debug, PartialEq)]
+pub struct OrderBy {
+    pub column: String,
+    pub descending: bool,
 }

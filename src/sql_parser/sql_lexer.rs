@@ -109,6 +109,10 @@ impl Lexer {
             "TRUE" => Token::Keyword(Keyword::True),
             "FALSE" => Token::Keyword(Keyword::False),
             "NULL" => Token::Keyword(Keyword::Null),
+            "ORDER" => Token::Keyword(Keyword::Order),
+            "BY" => Token::Keyword(Keyword::By),
+            "ASC" => Token::Keyword(Keyword::Asc),
+            "DESC" => Token::Keyword(Keyword::Desc),
             _ => Token::Identifier(word),
         }
     }
