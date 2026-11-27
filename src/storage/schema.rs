@@ -6,6 +6,7 @@ pub enum RowError {
     TypeMismatch { column: String },
     TextTooLong { column: String, max_length: usize },
     UnsupportedNull { column: String },
+    NotNullViolation { column: String },
     IntegerOutOfRange { column: String },
     InvalidRecordSize { expected: usize, actual: usize },
 }
@@ -23,6 +24,8 @@ pub struct Column {
     pub name: String,
     pub value_type: ValueType,
     pub max_length: Option<usize>,
+    pub nullable: bool,
+    pub unique: bool,
 }
 
 impl Column {
@@ -57,6 +60,18 @@ impl TableSchema {
         }
 
         for (column, value) in self.columns.iter().zip(&values) {
+            if value == &Value::Null {
+                return Err(if column.nullable {
+                    RowError::UnsupportedNull {
+                        column: column.name.clone(),
+                    }
+                } else {
+                    RowError::NotNullViolation {
+                        column: column.name.clone(),
+                    }
+                });
+            }
+
             match (&column.value_type, value) {
                 (ValueType::Integer, Value::Integer(_)) => {}
                 (ValueType::Text, Value::Text(text)) => {
@@ -70,7 +85,6 @@ impl TableSchema {
                     }
                 }
                 (ValueType::Bool, Value::Bool(_)) => {}
-                (ValueType::Null, Value::Null) => {}
                 _ => {
                     return Err(RowError::TypeMismatch {
                         column: column.name.clone(),

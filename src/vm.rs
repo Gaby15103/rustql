@@ -1,11 +1,9 @@
-use std::cmp::Ordering;
-use std::collections::HashSet;
 use crate::btree::Cursor;
 use crate::btree::{LEAF_NODE_MAX_CELLS, LeafNode, leaf_node_split_and_insert};
-use crate::sql_parser::{BinaryOperator, DataType, DropTableStmt, UnaryOperator};
 use crate::sql_parser::Expr;
 use crate::sql_parser::LiteralValue;
 use crate::sql_parser::SelectItem;
+use crate::sql_parser::{BinaryOperator, DataType, DropTableStmt, UnaryOperator};
 use crate::sql_parser::{
     CreateTableStmt, DeleteStmt, InsertStmt, SelectStmt, Statement, UpdateStmt,
 };
@@ -13,6 +11,8 @@ use crate::storage::Column;
 use crate::storage::TableEntry;
 use crate::storage::ValueType;
 use crate::storage::{Database, Row, TableSchema, Value};
+use std::cmp::Ordering;
+use std::collections::HashSet;
 
 pub enum ExecuteError {
     TableFull,
@@ -23,6 +23,11 @@ pub enum ExecuteError {
     TableAlreadyExists,
     UnsupportedStatement,
     UnsupportedExpression,
+    PrimaryKeyRequired,
+    DuplicateColumn,
+    NotNullViolation,
+    PrimaryKeyMustBeInteger,
+    UniqueViolation,
 }
 
 pub fn execute_statement(
@@ -48,13 +53,27 @@ fn execute_create_table(
         return Err(ExecuteError::InvalidRow);
     }
 
+    let mut column_names = std::collections::HashSet::new();
+    for column in &statement.columns {
+        if !column_names.insert(column.name.to_ascii_lowercase()) {
+            return Err(ExecuteError::DuplicateColumn);
+        }
+    }
+
     let mut primary_key_index = None;
     let mut schema_columns = Vec::with_capacity(statement.columns.len());
 
     for (index, column) in statement.columns.iter().enumerate() {
         if column.is_primary_key {
             if primary_key_index.is_some() {
-                return Err(ExecuteError::InvalidRow);
+                return Err(ExecuteError::PrimaryKeyRequired);
+            }
+            if statement
+                .columns
+                .iter()
+                .any(|column| column.is_primary_key && column.data_type != DataType::Int)
+            {
+                return Err(ExecuteError::PrimaryKeyMustBeInteger);
             }
             primary_key_index = Some(index);
         }
@@ -72,6 +91,8 @@ fn execute_create_table(
                 DataType::Text => Some(255),
                 _ => None,
             },
+            nullable: column.is_nullable && !column.is_primary_key,
+            unique: column.is_unique || column.is_primary_key,
         });
     }
 
@@ -103,12 +124,17 @@ fn execute_insert(statement: &InsertStmt, mut database: &mut Database) -> Result
         .ok_or(ExecuteError::TableNotFound)?
         .clone();
 
-    for parsed_row in &statement.values {
-        let row = bind_insert_row(&entry.schema, statement.columns.as_deref(), parsed_row)?;
-        // let row = entry.schema.make_row(values)
-        //     .map_err(|_| ExecuteError::InvalidRow)?;
+    let new_rows = statement
+        .values
+        .iter()
+        .map(|values| bind_insert_row(&entry.schema, statement.columns.as_deref(), values))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut all_rows = read_table_rows(database, &entry)?;
+    all_rows.extend(new_rows.iter().cloned());
+    validate_table_constraints(&all_rows, &entry.schema)?;
 
-        insert_row(&mut database, &entry, &row)?;
+    for row in &new_rows {
+        insert_row(database, &entry, row)?;
     }
 
     Ok(())
@@ -200,10 +226,7 @@ fn execute_update(statement: &UpdateStmt, database: &mut Database) -> Result<(),
 
     for row in &mut rows {
         let matches = match &statement.where_clause {
-            Some(condition) => matches!(
-                evaluate_condition(condition, row, &entry.schema)?,
-                true
-            ),
+            Some(condition) => matches!(evaluate_condition(condition, row, &entry.schema)?, true),
             None => true,
         };
 
@@ -470,27 +493,20 @@ fn column_index(schema: &TableSchema, name: &str) -> Result<usize, ExecuteError>
         .ok_or(ExecuteError::ColumnNotFound)
 }
 
-fn read_table_rows(
-    database: &mut Database,
-    entry: &TableEntry,
-) -> Result<Vec<Row>, ExecuteError> {
+fn read_table_rows(database: &mut Database, entry: &TableEntry) -> Result<Vec<Row>, ExecuteError> {
     let mut rows = Vec::new();
     let mut cursor = Cursor::table_start(&mut database.pager, entry.root_page_num);
 
     while !cursor.end_of_table {
-        let row = Row::from_bytes(cursor.value(), &entry.schema)
-            .map_err(|_| ExecuteError::InvalidRow)?;
+        let row =
+            Row::from_bytes(cursor.value(), &entry.schema).map_err(|_| ExecuteError::InvalidRow)?;
         rows.push(row);
         cursor.advance();
     }
 
     Ok(rows)
 }
-fn match_where(
-    expression: &Expr,
-    row: &Row,
-    schema: &TableSchema,
-) -> Result<bool, ExecuteError> {
+fn match_where(expression: &Expr, row: &Row, schema: &TableSchema) -> Result<bool, ExecuteError> {
     evaluate_condition(expression, row, schema)
 }
 
@@ -599,7 +615,7 @@ fn evaluate_value(
                         BinaryOperator::Slash => None,
                         _ => unreachable!(),
                     }
-                        .ok_or(ExecuteError::UnsupportedExpression)?;
+                    .ok_or(ExecuteError::UnsupportedExpression)?;
 
                     Ok(Value::Integer(result))
                 }
@@ -610,10 +626,7 @@ fn evaluate_value(
     }
 }
 
-fn compare_values(
-    left: &Value,
-    right: &Value,
-) -> Result<Option<Ordering>, ExecuteError> {
+fn compare_values(left: &Value, right: &Value) -> Result<Option<Ordering>, ExecuteError> {
     match (left, right) {
         (Value::Null, _) | (_, Value::Null) => Ok(None),
         (Value::Integer(left), Value::Integer(right)) => Ok(Some(left.cmp(right))),
@@ -666,6 +679,8 @@ fn rewrite_table(
         }
     }
 
+    validate_table_constraints(rows, &entry.schema)?;
+
     // Reset the existing root page. Old child pages become unreachable; rows
     // are reinserted using the normal B-tree insertion path.
     {
@@ -676,6 +691,52 @@ fn rewrite_table(
 
     for row in rows {
         insert_row(database, entry, row)?;
+    }
+
+    Ok(())
+}
+fn validate_table_constraints(rows: &[Row], schema: &TableSchema) -> Result<(), ExecuteError> {
+    let primary_key_index = schema
+        .primary_key_index
+        .ok_or(ExecuteError::PrimaryKeyRequired)?;
+
+    let mut primary_keys = HashSet::new();
+    let mut unique_values: Vec<(usize, Vec<Value>)> = schema
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(_, column)| column.unique)
+        .map(|(index, _)| (index, Vec::new()))
+        .collect();
+
+    for row in rows {
+        schema
+            .make_row(row.values.clone())
+            .map_err(|error| match error {
+                crate::storage::RowError::NotNullViolation { .. } => ExecuteError::NotNullViolation,
+                _ => ExecuteError::InvalidRow,
+            })?;
+
+        let key = match row.values.get(primary_key_index) {
+            Some(Value::Integer(value)) => {
+                u32::try_from(*value).map_err(|_| ExecuteError::InvalidRow)?
+            }
+            _ => return Err(ExecuteError::InvalidRow),
+        };
+
+        if !primary_keys.insert(key) {
+            return Err(ExecuteError::DuplicateKey);
+        }
+
+        for (index, seen_values) in &mut unique_values {
+            let value = &row.values[*index];
+            if value != &Value::Null {
+                if seen_values.contains(value) {
+                    return Err(ExecuteError::UniqueViolation);
+                }
+                seen_values.push(value.clone());
+            }
+        }
     }
 
     Ok(())

@@ -244,6 +244,7 @@ impl Parser {
 
             let mut is_primary_key = false;
             let mut is_nullable = true;
+            let mut is_unique = false;
 
             // Parse optional column constraints in any order
             loop {
@@ -256,6 +257,8 @@ impl Parser {
                     is_nullable = false;
                 } else if self.consume_keyword(Keyword::Null) {
                     is_nullable = true;
+                } else if self.consume_keyword(Keyword::Unique) {
+                    is_unique = true;
                 } else {
                     break;
                 }
@@ -266,6 +269,7 @@ impl Parser {
                 data_type,
                 is_primary_key,
                 is_nullable,
+                is_unique,
             });
 
             if !self.consume_token(&Token::Comma) {

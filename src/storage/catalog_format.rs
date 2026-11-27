@@ -56,6 +56,9 @@ pub fn encode(catalog: &Catalog) -> Result<[u8; PAGE_SIZE], CatalogFormatError> 
             } else {
                 write_u32(&mut bytes, 0)?;
             }
+
+            let flags = u8::from(column.nullable) | (u8::from(column.unique) << 1);
+            write_u8(&mut bytes, flags)?;
         }
 
         let primary_key = entry
@@ -112,6 +115,13 @@ fn decode_tables(
             let column_name = reader.read_string("column name")?;
             let type_id = reader.read_u8()?;
             let max_length = reader.read_u32()? as usize;
+            let flags = reader.read_u8()?;
+
+            if flags & !0b11 != 0 {
+                return Err(CatalogFormatError::new(
+                    "invalid stored column constraint flags",
+                ));
+            }
 
             let value_type = match type_id {
                 0 => ValueType::Integer,
@@ -137,6 +147,8 @@ fn decode_tables(
                 } else {
                     None
                 },
+                nullable: flags & 0b01 != 0,
+                unique: flags & 0b10 != 0,
             });
         }
 

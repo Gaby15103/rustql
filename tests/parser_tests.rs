@@ -30,18 +30,21 @@ mod tests {
                         data_type: DataType::Int,
                         is_primary_key: true,
                         is_nullable: false,
+                        is_unique: false,
                     },
                     ColumnDef {
                         name: "name".into(),
                         data_type: DataType::Text,
                         is_primary_key: false,
                         is_nullable: false,
+                        is_unique: false,
                     },
                     ColumnDef {
                         name: "active".into(),
                         data_type: DataType::Bool,
                         is_primary_key: false,
                         is_nullable: true,
+                        is_unique: false,
                     },
                 ],
             })]

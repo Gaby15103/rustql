@@ -89,8 +89,18 @@ fn print_schema(schema: &TableSchema) {
         } else {
             ""
         };
+        let not_null = if !column.nullable {
+            " NOT NULL"
+        }else{
+            " NULL"
+        };
+        let unique = if column.unique {
+            " UNIQUE"
+        }else{
+            ""
+        };
 
-        println!("  {} {}{}{}", column.name, data_type, primary_key, comma);
+        println!("  {} {}{}{}{}{}", column.name, data_type, primary_key, not_null,unique, comma);
     }
 
     println!(");");

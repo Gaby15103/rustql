@@ -114,6 +114,7 @@ impl Lexer {
             "BY" => Token::Keyword(Keyword::By),
             "ASC" => Token::Keyword(Keyword::Asc),
             "DESC" => Token::Keyword(Keyword::Desc),
+            "UNIQUE" => Token::Keyword(Keyword::Unique),
             _ => Token::Identifier(word),
         }
     }

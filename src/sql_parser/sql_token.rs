@@ -77,6 +77,7 @@ pub enum Keyword {
     By,
     Asc,
     Desc,
+    Unique
 }
 
 #[derive(Debug, PartialEq)]
@@ -125,6 +126,7 @@ pub struct ColumnDef {
     pub data_type: DataType,
     pub is_primary_key: bool,
     pub is_nullable: bool,
+    pub is_unique: bool,
 }
 
 #[derive(Debug, PartialEq)]

@@ -2,9 +2,9 @@ mod btree;
 mod compiler;
 mod meta;
 mod repl;
+mod sql_parser;
 mod storage;
 mod vm;
-mod sql_parser;
 
 use compiler::{PrepareError, prepare_statement};
 use meta::{MetaAction, MetaError, do_meta_command};
@@ -12,9 +12,7 @@ use repl::{print_prompt, read_input};
 use std::{env, process};
 use vm::{ExecuteError, execute_statement};
 
-use crate::sql_parser::{
-    Lexer, Parser,
-};
+use crate::sql_parser::{Lexer, Parser};
 use crate::storage::Database;
 
 fn main() {
@@ -95,6 +93,21 @@ fn main() {
             Err(ExecuteError::ColumnNotFound) => println!("Error: Column not found."),
             Err(ExecuteError::TableAlreadyExists) => println!("Error: Table already exists."),
             Err(ExecuteError::UnsupportedExpression) => println!("Error: unsupported expression."),
+            Err(ExecuteError::NotNullViolation) => {
+                println!("Error: NOT NULL constraint failed.");
+            }
+            Err(ExecuteError::PrimaryKeyRequired) => {
+                println!("Error: every table must have an integer primary key.");
+            }
+            Err(ExecuteError::PrimaryKeyMustBeInteger) => {
+                println!("Error: the primary key must have type INT.");
+            }
+            Err(ExecuteError::DuplicateColumn) => {
+                println!("Error: duplicate column name.");
+            }
+            Err(ExecuteError::UniqueViolation) => {
+                println!("Error: UNIQUE constraint failed.");
+            }
         }
     }
 }
