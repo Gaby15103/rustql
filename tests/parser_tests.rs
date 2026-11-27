@@ -70,6 +70,7 @@ mod tests {
                 from: "dual".into(),
                 where_clause: None,
                 limit: None,
+                order_by: None,
             })]
         );
     }

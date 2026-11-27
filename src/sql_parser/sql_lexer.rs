@@ -102,6 +102,7 @@ impl Lexer {
             "UPDATE" => Token::Keyword(Keyword::Update),
             "SET" => Token::Keyword(Keyword::Set),
             "DELETE" => Token::Keyword(Keyword::Delete),
+            "DROP" => Token::Keyword(Keyword::Drop),
             "AS" => Token::Keyword(Keyword::As),
             "AND" => Token::Keyword(Keyword::And),
             "OR" => Token::Keyword(Keyword::Or),

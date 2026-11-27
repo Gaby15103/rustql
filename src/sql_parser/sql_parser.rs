@@ -1,4 +1,4 @@
-use crate::sql_parser::OrderBy;
+use crate::sql_parser::{DropTableStmt, OrderBy};
 use crate::sql_parser::sql_token::{
     Assignment, BinaryOperator, ColumnDef, CreateTableStmt, DataType, DeleteStmt, Expr, InsertStmt,
     Keyword, LiteralValue, SelectItem, SelectStmt, Statement, Token, UnaryOperator, UpdateStmt,
@@ -94,6 +94,7 @@ impl Parser {
             Token::Keyword(Keyword::Create) => Statement::CreateTable(self.parse_create_table()?),
             Token::Keyword(Keyword::Update) => Statement::Update(self.parse_update()?),
             Token::Keyword(Keyword::Delete) => Statement::Delete(self.parse_delete()?),
+            Token::Keyword(Keyword::Drop) => Statement::DropTable(self.parse_drop_table()?),
             other => {
                 return Err(format!(
                     "Unexpected token at start of statement: {:?}",
@@ -326,6 +327,22 @@ impl Parser {
             table,
             where_clause,
         })
+    }
+
+    fn parse_drop_table(&mut self) -> Result<DropTableStmt, String> {
+        self.expect_keyword(Keyword::Drop)?;
+        self.expect_keyword(Keyword::Table)?;
+
+        let if_exists = if self.consume_keyword(Keyword::If) {
+            self.expect_keyword(Keyword::Exists)?;
+            true
+        } else {
+            false
+        };
+
+        let table = self.expect_identifier()?;
+
+        Ok(DropTableStmt { table, if_exists })
     }
 
     fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, String> {

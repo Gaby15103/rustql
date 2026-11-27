@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use crate::btree::Cursor;
 use crate::btree::{LEAF_NODE_MAX_CELLS, LeafNode, leaf_node_split_and_insert};
-use crate::sql_parser::{BinaryOperator, DataType, UnaryOperator};
+use crate::sql_parser::{BinaryOperator, DataType, DropTableStmt, UnaryOperator};
 use crate::sql_parser::Expr;
 use crate::sql_parser::LiteralValue;
 use crate::sql_parser::SelectItem;
@@ -35,6 +35,7 @@ pub fn execute_statement(
         Statement::Select(statement) => execute_select(statement, database),
         Statement::Update(statement) => execute_update(statement, database),
         Statement::Delete(statement) => execute_delete(statement, database),
+        Statement::DropTable(statement) => execute_drop_table(statement, database),
         _ => Err(ExecuteError::UnsupportedStatement),
     }
 }
@@ -254,6 +255,17 @@ fn execute_delete(statement: &DeleteStmt, database: &mut Database) -> Result<(),
     }
 
     rewrite_table(database, &entry, &rows_to_keep)
+}
+
+fn execute_drop_table(
+    statement: &DropTableStmt,
+    database: &mut Database,
+) -> Result<(), ExecuteError> {
+    if database.drop_table(&statement.table) || statement.if_exists {
+        Ok(())
+    } else {
+        Err(ExecuteError::TableNotFound)
+    }
 }
 
 // --- non execute command ---

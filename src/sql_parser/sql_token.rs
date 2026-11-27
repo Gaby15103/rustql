@@ -65,6 +65,7 @@ pub enum Keyword {
     Update,
     Set,
     Delete,
+    Drop,
     As,
     And,
     Or,
@@ -85,6 +86,7 @@ pub enum Statement {
     CreateTable(CreateTableStmt),
     Update(UpdateStmt),
     Delete(DeleteStmt),
+    DropTable(DropTableStmt),
 }
 
 #[derive(Debug, PartialEq)]
@@ -148,6 +150,12 @@ pub struct Assignment {
 pub struct DeleteStmt {
     pub table: String,
     pub where_clause: Option<Expr>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct DropTableStmt {
+    pub table: String,
+    pub if_exists: bool,
 }
 
 #[derive(Debug, PartialEq)]

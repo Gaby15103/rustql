@@ -56,9 +56,15 @@ impl Database {
     pub fn table_names(&self) -> Vec<String> {
         self.catalog.names()
     }
+
     pub fn table(&self, name: &str) -> Option<&TableEntry> {
         self.catalog.get(&name.to_ascii_lowercase())
     }
+
+    pub fn drop_table(&mut self, name: &str) -> bool {
+        self.catalog.remove(name).is_some()
+    }
+
     pub fn create_table(&mut self, schema: TableSchema) -> Result<(), String> {
         let name = schema.name.to_ascii_lowercase();
 

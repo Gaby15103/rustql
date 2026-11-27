@@ -36,6 +36,10 @@ impl Catalog {
         names
     }
 
+    pub fn remove(&mut self, name: &str) -> Option<TableEntry> {
+        self.tables.remove(&name.to_ascii_lowercase())
+    }
+
     pub fn entries(&self) -> impl Iterator<Item = (&String, &TableEntry)> {
         self.tables.iter()
     }
